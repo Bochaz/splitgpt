@@ -40,11 +40,18 @@
     .tab{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer}
     .tab.active{background:#000;color:#fff;border-color:#000}
     canvas{max-width:100%;height:auto}
+    /* prefijo de moneda en inputs */
+    .prefix-input{position:relative}
+    .prefix-input .prefix{position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:#9ca3af}
+    .prefix-input input{padding-left:28px}
+    .prefix-input input::placeholder{color:#d1d5db}
     /* Modal */
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100}
     .modal{max-width:640px;width:100%;background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.2);padding:16px}
     .modal header{position:relative;background:transparent;border:0;padding:0;margin:0 0 8px 0}
     .modal .close{position:absolute;top:0;right:0}
+    /* status */
+    #status{position:fixed;bottom:12px;right:12px;background:#fff;border:1px solid var(--border);border-radius:12px;padding:6px 10px;font-size:12px;color:var(--muted);box-shadow:0 1px 4px rgba(0,0,0,.08)}
   </style>
 </head>
 <body>
@@ -71,8 +78,22 @@
   </header>
 
   <main class="container" id="app"></main>
+  <div id="status" style="display:none"></div>
 
   <script>
+    // ===== JSONBin sync (sin exponer claves) =====
+    // Usamos un Bin Público (X-Bin-Private:false) que permite leer/actualizar por Bin ID.
+    // Paso previo: crear el bin (manual con tu cuenta) y hacerlo público. Guardate el ID.
+    const JSONBIN_BIN_ID = new URLSearchParams(location.search).get('bin') || null;
+    const JSONBIN_ROOT = 'https://api.jsonbin.io/v3/b';
+    const JSONBIN_GET_URL = (id) => `${JSONBIN_ROOT}/${id}/latest`;
+    const JSONBIN_PUT_URL = (id) => `${JSONBIN_ROOT}/${id}`;
+    let lastRemoteTs = 0;
+    let pollTimer = null;
+    const debounce=(fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);}}
+    const showStatus = (msg) => { const el=document.getElementById('status'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{el.style.display='none'}, 1200); };
+
+    // ===== App =====
     const CATEGORIES = ['Comida','Transporte','Alojamiento','Entretenimiento','Compras','Combustible','Tours','Otros'];
 
     const state = {
@@ -113,7 +134,6 @@
         const perHead = computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue;
         if(e.payerId) raw[e.payerId]+=amt; Object.entries(perHead).forEach(([id,val])=> raw[id]-=val);
       }
-      // aplicar pagos
       const incoming = {}; const outgoing = {}; state.participants.forEach(p=>{incoming[p.id]=0; outgoing[p.id]=0;});
       for(const p of state.payments){
         const amt=parseAmount(p.amount)||0; if(amt<=0) continue;
@@ -142,7 +162,7 @@
     // --- render ---
     function ensureDraft(fromExpense){
       if(fromExpense){ state.draft = JSON.parse(JSON.stringify(fromExpense)); return; }
-      if(!state.draft){ state.draft = { id: uid(), desc:'', amount:0, date: new Date().toISOString().slice(0,10), payerId: (state.participants[0]?.id) || null, involvedIds: state.participants.map(p=>p.id), split: { mode:'equal' }, category: CATEGORIES[0] }; }
+      if(!state.draft){ state.draft = { id: uid(), desc:'', amount:'', date: new Date().toISOString().slice(0,10), payerId: (state.participants[0]?.id) || null, involvedIds: state.participants.map(p=>p.id), split: { mode:'equal' }, category: CATEGORIES[0] }; }
       else if(!state.draft.category){ state.draft.category = CATEGORIES[0]; }
       state.draft.payerId = (state.draft.payerId ?? (state.participants[0]?.id)) || null;
       state.draft.involvedIds = state.draft.involvedIds?.filter(id=>state.participants.find(p=>p.id===id)) || [];
@@ -206,7 +226,14 @@
         </div>
         <div class="grid grid-6">
           <div class="col"><label class="block"><div class="label">Descripción</div><input id="gDesc" placeholder="Ej: Cena, Nafta, Hotel" value="${escapeHtml(state.draft.desc)}"></label></div>
-          <div class="col"><label class="block"><div class="label">Monto</div><input id="gAmount" value="${escapeHtml(state.draft.amount)}" placeholder="0,00"></label></div>
+          <div class="col">
+            <label class="block"><div class="label">Monto</div>
+              <div class="prefix-input">
+                <span class="prefix">${escapeHtml(state.currency)}</span>
+                <input id="gAmount" placeholder="$0,00" inputmode="decimal" value="${state.draft.amount==null?'':escapeHtml(state.draft.amount)}">
+              </div>
+            </label>
+          </div>
           <div class="col"><label class="block"><div class="label">Fecha</div><input id="gDate" type="date" value="${escapeHtml(state.draft.date)}"></label></div>
           <div class="col"><label class="block"><div class="label">Pagó</div>
             <select id="gPayer"><option disabled ${state.draft.payerId? '' : 'selected'}>Seleccioná</option>
@@ -319,7 +346,7 @@
               ${state.participants.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
             </select>
           </label></div>
-          <div class="col"><label class="block"><div class="label">Monto</div><input id="pAmount" placeholder="0,00"></label></div>
+          <div class="col"><label class="block"><div class="label">Monto</div><div class="prefix-input"><span class="prefix">${escapeHtml(state.currency)}</span><input id="pAmount" placeholder="$0,00" inputmode="decimal"></div></label></div>
           <div class="col" style="grid-column: span 2"><label class="block"><div class="label">Nota (opcional)</div><input id="pNote" placeholder="Transferencia, efectivo, etc."></label></div>
         </div>
         <div class="spacer"></div>
@@ -348,14 +375,6 @@
             </table>
           </div>`}
       </section>`;
-    }
-
-    function renderExpenseBreakdown(e){
-      const per = computePerHead(e);
-      return `
-        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;padding:10px 6px">
-          ${Object.keys(per).map(id=>`<div class="card"><div class="muted">${escapeHtml(nameById(id))}</div><div><b>${state.currency} ${formatAmount(per[id])}</b></div></div>`).join('')}
-        </div>`;
     }
 
     function renderSaldos(calc, settlements){
@@ -411,10 +430,10 @@
 
     // ---- Binders ----
     function bindViajeros(){
-      document.getElementById('inpCurrency').addEventListener('input', e=>{ state.currency=e.target.value; saveLocal(); });
+      document.getElementById('inpCurrency').addEventListener('input', e=>{ state.currency=e.target.value; saveMaybe(); });
       document.getElementById('btnAddPerson').addEventListener('click', ()=>{
         const name=document.getElementById('inpNewName').value.trim(); if(!name) return;
-        state.participants.push({id:uid(), name}); document.getElementById('inpNewName').value=''; saveLocal(); render();
+        state.participants.push({id:uid(), name}); document.getElementById('inpNewName').value=''; saveMaybe(); render();
       });
       document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del');
         state.participants = state.participants.filter(p=>p.id!==id);
@@ -425,7 +444,7 @@
           return {...e, involvedIds, split, payerId};
         });
         state.payments = state.payments.filter(p=> p.fromId!==id && p.toId!==id);
-        saveLocal(); render();
+        saveMaybe(); render();
       }));
     }
 
@@ -451,20 +470,20 @@
         document.getElementById('btnSaveEdit').addEventListener('click', ()=>{
           const d=state.draft; if(!d.payerId) return; const amt=parseAmount(d.amount); if(!amt||amt<=0) return;
           state.expenses = state.expenses.map(x=> x.id===state.editingId ? {...d, amount: amt} : x);
-          state.draft=null; state.editingId=null; saveLocal(); state.activeTab='gastos'; render();
+          state.draft=null; state.editingId=null; saveMaybe(); state.activeTab='gastos'; render();
         });
         document.getElementById('btnCancelEdit').addEventListener('click', ()=>{ state.draft=null; state.editingId=null; render(); });
       } else {
         document.getElementById('btnAddExpense').addEventListener('click', ()=>{
           const d=state.draft; if(!d.payerId) return; const amt=parseAmount(d.amount); if(!amt||amt<=0) return;
-          const normalized={...d, amount: amt}; state.expenses = [normalized, ...state.expenses]; state.draft=null; saveLocal(); state.activeTab='gastos'; render();
+          const normalized={...d, amount: amt}; state.expenses = [normalized, ...state.expenses]; state.draft=null; saveMaybe(); state.activeTab='gastos'; render();
         });
       }
       document.getElementById('btnClearExpense').addEventListener('click', ()=>{ state.draft=null; render(); });
     }
 
     function bindGastos(){
-      document.querySelectorAll('[data-del-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del-exp'); state.expenses = state.expenses.filter(x=>x.id!==id); saveLocal(); render(); }));
+      document.querySelectorAll('[data-del-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del-exp'); state.expenses = state.expenses.filter(x=>x.id!==id); saveMaybe(); render(); }));
       document.querySelectorAll('[data-edit-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-edit-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return; ensureDraft(exp); state.editingId=id; state.activeTab='nuevo'; render(); }));
       document.querySelectorAll('[data-detail-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-detail-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return; showExpenseDetail(exp); }));
     }
@@ -480,10 +499,10 @@
         if(!amount || amount<=0){ alert('Ingresá un monto válido.'); return; }
         const pay = { id: uid(), date, fromId, toId, amount, note };
         state.payments = [pay, ...state.payments];
-        saveLocal(); render();
+        saveMaybe(); render();
       });
       document.querySelectorAll('[data-del-pay]').forEach(btn=> btn.addEventListener('click', ()=>{
-        const id=btn.getAttribute('data-del-pay'); state.payments = state.payments.filter(x=>x.id!==id); saveLocal(); render();
+        const id=btn.getAttribute('data-del-pay'); state.payments = state.payments.filter(x=>x.id!==id); saveMaybe(); render();
       }));
     }
 
@@ -522,23 +541,74 @@
 
     // --- share ---
     document.getElementById('btnShare').addEventListener('click', ()=>{
-      const payload = { currency: state.currency, participants: state.participants, expenses: state.expenses, payments: state.payments };
-      const url = location.origin + location.pathname + encodeStateForURL(payload);
-      if(navigator.clipboard){ navigator.clipboard.writeText(url).then(()=> alert('Link copiado al portapapeles. Compartilo con tu grupo ✨')); }
+      const url = JSONBIN_BIN_ID
+        ? (location.origin + location.pathname + '?bin=' + JSONBIN_BIN_ID)
+        : (location.origin + location.pathname + encodeStateForURL({ currency: state.currency, participants: state.participants, expenses: state.expenses, payments: state.payments }));
+      if(navigator.clipboard){ navigator.clipboard.writeText(url).then(()=> showStatus('Link copiado ✨')); }
       else { prompt('Copiá este link:', url); }
     });
 
     // --- init ---
     (function init(){
       const urlState = decodeStateFromURL();
-      if(urlState && urlState.participants){
-        state.currency=urlState.currency??'$'; state.participants=urlState.participants;
-        state.expenses=(urlState.expenses||[]).map(e=>({...e, category:e.category||'Otros'}));
-        state.payments=urlState.payments||[];
-      } else { loadLocal(); }
-      state.expenses = state.expenses.map(e=> ({...e, category: e.category || 'Otros'}));
-      render();
+      if(JSONBIN_BIN_ID){
+        // empezar a poller
+        startPolling();
+        // primer fetch
+        fetchBin().then(data=>{ if(data) applyRemote(data); render(); }).catch(()=>{ /* si falla, seguimos local */ render(); });
+      } else if(urlState && urlState.participants){
+        state.currency=urlState.currency??'$'; state.participants=urlState.participants; state.expenses=(urlState.expenses||[]); state.payments=urlState.payments||[];
+        render();
+      } else {
+        loadLocal(); state.expenses = state.expenses.map(e=> ({...e, category: e.category || 'Otros'})); render();
+      }
     })();
+
+    function serializeState(){ return { currency: state.currency, participants: state.participants, expenses: state.expenses, payments: state.payments, __ts: Date.now() }; }
+    function applyRemote(d){
+      if(!d) return;
+      state.currency = d.currency ?? state.currency;
+      state.participants = Array.isArray(d.participants)? d.participants : state.participants;
+      state.expenses = Array.isArray(d.expenses)? d.expenses : state.expenses;
+      state.payments = Array.isArray(d.payments)? d.payments : state.payments;
+      lastRemoteTs = d.__ts || Date.now();
+      state.draft=null; state.editingId=null;
+    }
+
+    const saveRemoteDebounced = debounce(()=>{
+      if(!JSONBIN_BIN_ID) return;
+      const payload = serializeState();
+      lastRemoteTs = payload.__ts;
+      fetch(JSONBIN_PUT_URL(JSONBIN_BIN_ID), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(()=> showStatus('Guardado')).catch(err=> console.warn('PUT jsonbin', err));
+    }, 300);
+
+    function saveMaybe(){
+      if(JSONBIN_BIN_ID){ saveRemoteDebounced(); } else { saveLocal(); }
+    }
+
+    async function fetchBin(){
+      try{
+        const r = await fetch(JSONBIN_GET_URL(JSONBIN_BIN_ID));
+        if(!r.ok) throw new Error('GET failed');
+        const j = await r.json();
+        // v3 devuelve {record: {...}, metadata:{...}}
+        return j && j.record ? j.record : null;
+      }catch(e){ console.warn('GET jsonbin', e); return null; }
+    }
+
+    function startPolling(){
+      clearInterval(pollTimer);
+      pollTimer = setInterval(async ()=>{
+        const remote = await fetchBin();
+        if(remote && remote.__ts && remote.__ts !== lastRemoteTs){
+          applyRemote(remote); render(); showStatus('Sincronizado');
+        }
+      }, 3000);
+    }
 
     // --- pie chart ---
     function drawPie(){
