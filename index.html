@@ -7,7 +7,7 @@
   <style>
     :root{--bg:#f6f7f8;--panel:#fff;--text:#111;--muted:#6b7280;--border:#e5e7eb;--primary:#111;--primary-contrast:#fff;--danger:#b91c1c;--ok:#065f46}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-    header{position:sticky;top:0;backdrop-filter:saturate(180%) blur(10px);background:rgba(255,255,255,.8);border-bottom:1px solid var(--border)}
+    header{position:sticky;top:0;backdrop-filter:saturate(180%) blur(10px);background:rgba(255,255,255,.85);border-bottom:1px solid var(--border);z-index:50}
     .container{max-width:1000px;margin:0 auto;padding:16px}
     h1{font-size:22px;margin:0;font-weight:900;letter-spacing:-.02em}
     .chip{display:inline-flex;align-items:center;font-size:12px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;margin-left:8px}
@@ -16,14 +16,16 @@
     .btn:hover{background:#f3f4f6}
     .btn.primary{background:var(--primary);color:var(--primary-contrast);border-color:var(--primary)}
     .btn.danger{color:var(--danger);border-color:var(--danger)}
+    .btn.ghost{background:transparent}
     section.panel{background:var(--panel);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.06);padding:16px;margin:16px 0}
     section.panel h2{margin:0 0 12px 0;font-size:18px}
     label.block{display:block}
     .label{font-size:12px;color:var(--muted);margin-bottom:4px}
-    input,select{width:100%;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff}
+    input,select,textarea{width:100%;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff}
     .grid{display:grid;gap:10px}
     @media(min-width:780px){.grid-6{grid-template-columns:repeat(6,1fr)}}
-    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:14px;padding:6px 10px;background:#fff}
+    .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:14px;padding:8px 12px;background:#fff;white-space:nowrap}
+    .pill.active{background:#000;color:#fff;border-color:#000}
     table{width:100%;border-collapse:collapse;font-size:14px}
     th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
     td.right{text-align:right}
@@ -31,6 +33,12 @@
     .card{border:1px solid var(--border);border-radius:12px;padding:12px;background:#fff}
     .ok{color:var(--ok)} .bad{color:var(--danger)}
     .spacer{height:8px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer}
+    .tab.active{background:#000;color:#fff;border-color:#000}
+    details.summary-row{background:#fafafa;border-radius:10px}
+    details>summary{list-style:none;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:10px}
+    details[open]>summary{background:#f3f4f6}
   </style>
 </head>
 <body>
@@ -48,6 +56,15 @@
         </label>
       </div>
     </div>
+    <div class="container" style="padding-top:0">
+      <nav class="tabs">
+        <button class="tab" data-tab="viajeros">Viajeros</button>
+        <button class="tab" data-tab="nuevo">Nuevo gasto</button>
+        <button class="tab" data-tab="gastos">Gastos cargados</button>
+        <button class="tab" data-tab="saldos">Saldos</button>
+        <button class="tab" data-tab="transferencias">Transferencias</button>
+      </nav>
+    </div>
   </header>
 
   <main class="container" id="app"></main>
@@ -59,6 +76,8 @@
       participants: [ { id: uid(), name: 'Ana' }, { id: uid(), name: 'Juan' } ],
       expenses: [],
       draft: null,
+      editingId: null,
+      activeTab: 'viajeros',
     };
 
     function uid(){return Math.random().toString(36).slice(2,9)}
@@ -71,47 +90,38 @@
     function saveLocal(){ const {currency,participants,expenses}=state; localStorage.setItem('tripsplit', JSON.stringify({currency,participants,expenses})); }
     function loadLocal(){ const raw=localStorage.getItem('tripsplit'); if(!raw) return; try{ const d=JSON.parse(raw); if(d&&d.participants){ state.currency=d.currency??'$'; state.participants=d.participants; state.expenses=d.expenses||[]; } }catch(e){} }
 
+    function computePerHead(e){
+      const amt=parseAmount(e.amount); if(!amt||amt<=0) return {};
+      const involved=(e.involvedIds||[]).filter(id=>state.participants.find(p=>p.id===id));
+      const perHead={}; if(involved.length===0) return perHead;
+      if(e.split?.mode==='equal'){
+        const share=amt/involved.length; involved.forEach(id=>perHead[id]=share);
+      }else if(e.split?.mode==='shares'){
+        const totalShares=involved.reduce((a,id)=>a+(parseAmount(e.split.shares?.[id])||0),0);
+        involved.forEach(id=>{ const s=parseAmount(e.split.shares?.[id])||0; perHead[id]= totalShares>0? (amt*s)/totalShares : 0; });
+      }else if(e.split?.mode==='percent'){
+        const totalPct=involved.reduce((a,id)=>a+(parseAmount(e.split.percents?.[id])||0),0);
+        involved.forEach(id=>{ const p=parseAmount(e.split.percents?.[id])||0; perHead[id]= totalPct>0? (amt*p)/totalPct : 0; });
+      }else if(e.split?.mode==='exact'){
+        involved.forEach(id=>perHead[id]=parseAmount(e.split.exact?.[id])||0);
+        const sumExact=Object.values(perHead).reduce((a,b)=>a+b,0);
+        if(sumExact>0 && Math.abs(sumExact-amt)>0.01){ const factor=amt/sumExact; for(const k in perHead) perHead[k]*=factor; }
+      }else{
+        const share=amt/involved.length; involved.forEach(id=>perHead[id]=share);
+      }
+      return perHead;
+    }
+
     function computeBalancesAndTotals(){
       const bal = {}; state.participants.forEach(p=>bal[p.id]=0);
       for(const e of state.expenses){
-        const amt=parseAmount(e.amount); if(!amt||amt<=0) continue;
-        const involved=(e.involvedIds||[]).filter(id=>state.participants.find(p=>p.id===id));
-        if(involved.length===0) continue;
-        const perHead={};
-        if(e.split?.mode==='equal'){
-          const share=amt/involved.length; involved.forEach(id=>perHead[id]=share);
-        }else if(e.split?.mode==='shares'){
-          const totalShares=involved.reduce((a,id)=>a+(parseAmount(e.split.shares?.[id])||0),0);
-          involved.forEach(id=>{ const s=parseAmount(e.split.shares?.[id])||0; perHead[id]= totalShares>0? (amt*s)/totalShares : 0; });
-        }else if(e.split?.mode==='percent'){
-          const totalPct=involved.reduce((a,id)=>a+(parseAmount(e.split.percents?.[id])||0),0);
-          involved.forEach(id=>{ const p=parseAmount(e.split.percents?.[id])||0; perHead[id]= totalPct>0? (amt*p)/totalPct : 0; });
-        }else if(e.split?.mode==='exact'){
-          involved.forEach(id=>perHead[id]=parseAmount(e.split.exact?.[id])||0);
-          const sumExact=Object.values(perHead).reduce((a,b)=>a+b,0);
-          if(sumExact>0 && Math.abs(sumExact-amt)>0.01){ const factor=amt/sumExact; for(const k in perHead) perHead[k]*=factor; }
-        }else{
-          const share=amt/involved.length; involved.forEach(id=>perHead[id]=share);
-        }
-        if(e.payerId) bal[e.payerId]+=amt;
-        involved.forEach(id=>bal[id]-=perHead[id]);
+        const perHead = computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue;
+        if(e.payerId) bal[e.payerId]+=amt; Object.entries(perHead).forEach(([id,val])=> bal[id]-=val);
       }
       const totals={ paidBy:Object.fromEntries(state.participants.map(p=>[p.id,0])), owedBy:Object.fromEntries(state.participants.map(p=>[p.id,0])) };
       for(const e of state.expenses){
-        const amt=parseAmount(e.amount); if(!amt||amt<=0) continue;
-        if(e.payerId) totals.paidBy[e.payerId]+=amt;
-        const involved=e.involvedIds||[];
-        if(e.split?.mode==='equal'){
-          const share=amt/involved.length; involved.forEach(id=>totals.owedBy[id]+=share);
-        }else if(e.split?.mode==='shares'){
-          const totalShares=involved.reduce((a,id)=>a+(parseAmount(e.split.shares?.[id])||0),0);
-          involved.forEach(id=>{ const s=parseAmount(e.split.shares?.[id])||0; totals.owedBy[id]+= totalShares>0? (amt*s)/totalShares : 0; });
-        }else if(e.split?.mode==='percent'){
-          const totalPct=involved.reduce((a,id)=>a+(parseAmount(e.split.percents?.[id])||0),0);
-          involved.forEach(id=>{ const p=parseAmount(e.split.percents?.[id])||0; totals.owedBy[id]+= totalPct>0? (amt*p)/totalPct : 0; });
-        }else if(e.split?.mode==='exact'){
-          involved.forEach(id=>totals.owedBy[id]+=parseAmount(e.split.exact?.[id])||0);
-        }
+        const perHead = computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue;
+        if(e.payerId) totals.paidBy[e.payerId]+=amt; Object.entries(perHead).forEach(([id,val])=> totals.owedBy[id]+=val);
       }
       return {balances:bal, totals};
     }
@@ -126,82 +136,105 @@
     function nameById(id){ const p=state.participants.find(p=>p.id===id); return p? p.name : '(?)'; }
 
     // ---------- Render ----------
-    function ensureDraft(){
+    function ensureDraft(fromExpense){
+      if(fromExpense){ state.draft = JSON.parse(JSON.stringify(fromExpense)); return; }
       if(!state.draft){ state.draft = { id: uid(), desc:'', amount:0, date: new Date().toISOString().slice(0,10), payerId: (state.participants[0]?.id) || null, involvedIds: state.participants.map(p=>p.id), split: { mode:'equal' } }; }
-      // si falta payerId
       state.draft.payerId = (state.draft.payerId ?? (state.participants[0]?.id)) || null;
-      // mantener involvedIds existentes
       state.draft.involvedIds = state.draft.involvedIds?.filter(id=>state.participants.find(p=>p.id===id)) || [];
       if(state.draft.involvedIds.length===0) state.draft.involvedIds = state.participants.map(p=>p.id);
     }
 
     function render(){
-      ensureDraft();
+      const app=document.getElementById('app');
       const {balances, totals} = computeBalancesAndTotals();
       const settlements = computeSettlements(balances);
 
-      const app=document.getElementById('app');
-      app.innerHTML = `
-        <section class="panel">
-          <div class="row" style="justify-content:space-between;align-items:flex-end">
-            <div style="flex:1"></div>
-            <div class="row" style="gap:8px">
-              <div style="width:80px">
-                <label class="block"><div class="label">Moneda</div>
-                  <input id="inpCurrency" value="${escapeHtml(state.currency)}">
-                </label>
-              </div>
-              <div style="width:220px">
-                <label class="block"><div class="label">Nuevo participante</div>
-                  <input id="inpNewName" placeholder="Nombre">
-                </label>
-              </div>
-              <button id="btnAddPerson" class="btn primary">Agregar</button>
-            </div>
-          </div>
-          <div class="spacer"></div>
-          <div class="row" style="flex-wrap:wrap;gap:8px">
-            ${state.participants.map(p=>`<span class="pill">${escapeHtml(p.name)} <button data-del="${p.id}" class="btn" style="padding:4px 6px;color:${cssVar('--danger')};border-color:${cssVar('--border')}">quitar</button></span>`).join('')}
-            ${state.participants.length===0? '<span class="muted">Agregá participantes para empezar</span>' : ''}
-          </div>
-        </section>
+      // Tabs active state
+      document.querySelectorAll('.tab').forEach(t=>{
+        t.classList.toggle('active', t.dataset.tab===state.activeTab);
+        t.onclick=()=>{ state.activeTab=t.dataset.tab; render(); };
+      });
 
-        <section class="panel">
-          <h2>Nuevo gasto</h2>
-          <div class="grid grid-6">
-            <div class="col"><label class="block"><div class="label">Descripción</div><input id="gDesc" placeholder="Ej: Cena, Nafta, Hotel" value="${escapeHtml(state.draft.desc)}"></label></div>
-            <div class="col"><label class="block"><div class="label">Monto</div><input id="gAmount" value="${escapeHtml(state.draft.amount)}" placeholder="0,00"></label></div>
-            <div class="col"><label class="block"><div class="label">Fecha</div><input id="gDate" type="date" value="${escapeHtml(state.draft.date)}"></label></div>
-            <div class="col"><label class="block"><div class="label">Pagó</div>
-              <select id="gPayer"><option disabled ${state.draft.payerId? '' : 'selected'}>Seleccioná</option>
-                ${state.participants.map(p=>`<option value="${p.id}" ${p.id===state.draft.payerId?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
-              </select>
-            </label></div>
-            <div class="col"><label class="block"><div class="label">Modo de división</div>
-              <select id="gMode">
-                ${['equal','shares','percent','exact'].map(m=>`<option value="${m}" ${state.draft.split.mode===m?'selected':''}>${({equal:'Partes iguales',shares:'Por ponderaciones',percent:'Por porcentaje',exact:'Montos exactos'})[m]}</option>`).join('')}
-              </select>
-            </label></div>
-          </div>
-          <div class="spacer"></div>
-          <div class="label">¿Quiénes participan de este gasto?</div>
-          <div class="row" style="flex-wrap:wrap;gap:8px">
-            ${state.participants.map(p=>{
-              const checked=state.draft.involvedIds.includes(p.id);
-              return `<label class="pill" style="${checked?'background:#000;color:#fff;border-color:#000':''}"><input type="checkbox" data-involved="${p.id}" ${checked?'checked':''} style="margin-right:6px">${escapeHtml(p.name)}</label>`;
-            }).join('')}
-          </div>
-          ${state.draft.split.mode!=='equal' ? extraSplitInputsHTML() : ''}
-          <div class="spacer"></div>
-          <div class="row">
-            <button id="btnAddExpense" class="btn primary">Agregar gasto</button>
-            <button id="btnClearExpense" class="btn">Limpiar</button>
-          </div>
-        </section>
+      let html='';
+      if(state.activeTab==='viajeros') html += renderViajeros();
+      if(state.activeTab==='nuevo') html += renderNuevo();
+      if(state.activeTab==='gastos') html += renderGastos();
+      if(state.activeTab==='saldos') html += renderSaldos(balances, totals);
+      if(state.activeTab==='transferencias') html += renderTransfers(settlements);
 
-        <section class="panel">
-          <h2>Gastos cargados</h2>
-          ${state.expenses.length===0 ? `<div class="muted">Todavía no hay gastos. Cargá el primero arriba ☝️</div>` : `
+      app.innerHTML = html;
+
+      // attach listeners for each tab after mount
+      if(state.activeTab==='viajeros') bindViajeros();
+      if(state.activeTab==='nuevo') bindNuevo();
+      if(state.activeTab==='gastos') bindGastos();
+    }
+
+    // ====== TABS RENDERERS ======
+    function renderViajeros(){
+      return `
+      <section class="panel">
+        <h2>Moneda & Viajeros</h2>
+        <div class="spacer"></div>
+        <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div style="width:90px"><label class="block"><div class="label">Moneda</div><input id="inpCurrency" value="${escapeHtml(state.currency)}"></label></div>
+          <div style="flex:1;min-width:220px"><label class="block"><div class="label">Nuevo viajero</div><input id="inpNewName" placeholder="Nombre"></label></div>
+          <button id="btnAddPerson" class="btn primary">Agregar</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="row" style="flex-wrap:wrap;gap:8px">
+          ${state.participants.map(p=>`<span class="pill">${escapeHtml(p.name)} <button data-del="${p.id}" class="btn ghost" style="padding:4px 6px;color:${cssVar('--danger')}">quitar</button></span>`).join('')}
+          ${state.participants.length===0? '<span class="muted">Agregá viajeros para empezar</span>' : ''}
+        </div>
+      </section>`;
+    }
+
+    function renderNuevo(){
+      ensureDraft();
+      const isEditing = !!state.editingId;
+      return `
+      <section class="panel">
+        <div class="row" style="justify-content:space-between">
+          <h2>${isEditing? 'Editar gasto' : 'Nuevo gasto'}</h2>
+          ${isEditing? '<button id="btnCancelEdit" class="btn">Cancelar edición</button>' : ''}
+        </div>
+        <div class="grid grid-6">
+          <div class="col"><label class="block"><div class="label">Descripción</div><input id="gDesc" placeholder="Ej: Cena, Nafta, Hotel" value="${escapeHtml(state.draft.desc)}"></label></div>
+          <div class="col"><label class="block"><div class="label">Monto</div><input id="gAmount" value="${escapeHtml(state.draft.amount)}" placeholder="0,00"></label></div>
+          <div class="col"><label class="block"><div class="label">Fecha</div><input id="gDate" type="date" value="${escapeHtml(state.draft.date)}"></label></div>
+          <div class="col"><label class="block"><div class="label">Pagó</div>
+            <select id="gPayer"><option disabled ${state.draft.payerId? '' : 'selected'}>Seleccioná</option>
+              ${state.participants.map(p=>`<option value="${p.id}" ${p.id===state.draft.payerId?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+            </select>
+          </label></div>
+          <div class="col"><label class="block"><div class="label">Modo de división</div>
+            <select id="gMode">
+              ${['equal','shares','percent','exact'].map(m=>`<option value="${m}" ${state.draft.split.mode===m?'selected':''}>${({equal:'Partes iguales',shares:'Por ponderaciones',percent:'Por porcentaje',exact:'Montos exactos'})[m]}</option>`).join('')}
+            </select>
+          </label></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="label">¿Quiénes participan de este gasto?</div>
+        <div class="row" style="flex-wrap:wrap;gap:8px">
+          ${state.participants.map(p=>{
+            const on = state.draft.involvedIds.includes(p.id);
+            return `<button class="pill ${on?'active':''}" data-tgl="${p.id}">${escapeHtml(p.name)}</button>`;
+          }).join('')}
+        </div>
+        ${state.draft.split.mode!=='equal' ? extraSplitInputsHTML() : ''}
+        <div class="spacer"></div>
+        <div class="row">
+          ${isEditing? '<button id="btnSaveEdit" class="btn primary">Guardar cambios</button>' : '<button id="btnAddExpense" class="btn primary">Agregar gasto</button>'}
+          <button id="btnClearExpense" class="btn">Limpiar</button>
+        </div>
+      </section>`;
+    }
+
+    function renderGastos(){
+      return `
+      <section class="panel">
+        <h2>Gastos cargados</h2>
+        ${state.expenses.length===0 ? `<div class="muted">Todavía no hay gastos.</div>` : `
           <div style="overflow-x:auto">
             <table>
               <thead><tr><th>Fecha</th><th>Descripción</th><th>Pagó</th><th>Incluye</th><th>División</th><th class="right">Monto</th><th></th></tr></thead>
@@ -214,39 +247,64 @@
                     <td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>
                     <td>${({equal:'= iguales',shares:'∝ ponderaciones',percent:'% porcentajes',exact:'= exactos'})[e.split?.mode||'equal']}</td>
                     <td class="right"><b>${state.currency} ${formatAmount(e.amount)}</b></td>
-                    <td class="right"><button class="btn danger" data-del-exp="${e.id}">eliminar</button></td>
+                    <td class="right">
+                      <button class="btn" data-edit-exp="${e.id}">Editar</button>
+                      <button class="btn danger" data-del-exp="${e.id}">Eliminar</button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colspan="7">
+                      <details class="summary-row"><summary>Ver detalle por persona</summary>
+                        ${renderExpenseBreakdown(e)}
+                      </details>
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           </div>`}
-        </section>
+      </section>`;
+    }
 
-        <section class="panel">
-          <h2>Saldos por persona</h2>
-          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
-            ${state.participants.map(p=>{
-              const net=balances[p.id]||0; const paid=totals.paidBy[p.id]||0; const owed=totals.owedBy[p.id]||0;
-              return `<div class="card">
-                <div style="font-weight:600">${escapeHtml(p.name)}</div>
-                <div class="muted">Pagó: <b>${state.currency} ${formatAmount(paid)}</b></div>
-                <div class="muted">Le corresponde: <b>${state.currency} ${formatAmount(owed)}</b></div>
-                <div class="${net>=0?'ok':'bad'}" style="margin-top:6px;font-weight:800">${net>=0?'A favor':'En contra'}: ${state.currency} ${formatAmount(Math.abs(net))}</div>
-              </div>`;
-            }).join('')}
-          </div>
-        </section>
+    function renderExpenseBreakdown(e){
+      const per = computePerHead(e);
+      return `
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;padding:10px 6px">
+          ${Object.keys(per).map(id=>`<div class="card"><div class="muted">${escapeHtml(nameById(id))}</div><div><b>${state.currency} ${formatAmount(per[id])}</b></div></div>`).join('')}
+        </div>`;
+    }
 
-        <section class="panel">
-          <h2>Transferencias sugeridas (para saldar)</h2>
-          ${settlements.length===0? '<div class="muted">No hay transferencias pendientes 🎉</div>' : `
-            <div class="grid" style="grid-template-columns:1fr;gap:8px">
-              ${settlements.map(t=>`<div class="card row" style="justify-content:space-between"><div><b>${escapeHtml(nameById(t.from))}</b> → <b>${escapeHtml(nameById(t.to))}</b></div><div style="font-weight:700">${state.currency} ${formatAmount(t.amount)}</div></div>`).join('')}
-            </div>`}
-        </section>
-      `;
+    function renderSaldos(balances, totals){
+      return `
+      <section class="panel">
+        <h2>Saldos por persona</h2>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+          ${state.participants.map(p=>{
+            const net=balances[p.id]||0; const paid=totals.paidBy[p.id]||0; const owed=totals.owedBy[p.id]||0;
+            return `<div class="card">
+              <div style="font-weight:600">${escapeHtml(p.name)}</div>
+              <div class="muted">Pagó: <b>${state.currency} ${formatAmount(paid)}</b></div>
+              <div class="muted">Le corresponde: <b>${state.currency} ${formatAmount(owed)}</b></div>
+              <div class="${net>=0?'ok':'bad'}" style="margin-top:6px;font-weight:800">${net>=0?'A favor':'En contra'}: ${state.currency} ${formatAmount(Math.abs(net))}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </section>`;
+    }
 
-      // Event listeners
+    function renderTransfers(settlements){
+      return `
+      <section class="panel">
+        <h2>Transferencias sugeridas (para saldar)</h2>
+        ${settlements.length===0? '<div class="muted">No hay transferencias pendientes 🎉</div>' : `
+          <div class="grid" style="grid-template-columns:1fr;gap:8px">
+            ${settlements.map(t=>`<div class="card row" style="justify-content:space-between"><div><b>${escapeHtml(nameById(t.from))}</b> → <b>${escapeHtml(nameById(t.to))}</b></div><div style="font-weight:700">${state.currency} ${formatAmount(t.amount)}</div></div>`).join('')}
+          </div>`}
+      </section>`;
+    }
+
+    // ====== BINDERS ======
+    function bindViajeros(){
       document.getElementById('inpCurrency').addEventListener('input', e=>{ state.currency=e.target.value; saveLocal(); });
       document.getElementById('btnAddPerson').addEventListener('click', ()=>{
         const name=document.getElementById('inpNewName').value.trim(); if(!name) return;
@@ -254,7 +312,6 @@
       });
       document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del');
         state.participants = state.participants.filter(p=>p.id!==id);
-        // limpiar referencias en gastos
         state.expenses = state.expenses.map(e=>{
           const involvedIds = (e.involvedIds||[]).filter(pid=>pid!==id);
           const split = sanitizeSplitForParticipants(e.split, involvedIds);
@@ -263,32 +320,47 @@
         });
         saveLocal(); render();
       }));
+    }
 
+    function bindNuevo(){
       // Draft inputs
       document.getElementById('gDesc').addEventListener('input', e=>{ state.draft.desc=e.target.value; });
       document.getElementById('gAmount').addEventListener('input', e=>{ state.draft.amount=e.target.value; });
       document.getElementById('gDate').addEventListener('input', e=>{ state.draft.date=e.target.value; });
       document.getElementById('gPayer').addEventListener('change', e=>{ state.draft.payerId=e.target.value; });
       document.getElementById('gMode').addEventListener('change', e=>{ state.draft.split={ mode:e.target.value }; render(); });
-      document.querySelectorAll('[data-involved]').forEach(ch=> ch.addEventListener('change', e=>{
-        const id=ch.getAttribute('data-involved'); const set=new Set(state.draft.involvedIds);
-        if(ch.checked) set.add(id); else set.delete(id);
+      // Participant toggles (botones, no checkboxes) → arregla superposición en móvil
+      document.querySelectorAll('[data-tgl]').forEach(btn=> btn.addEventListener('click', ()=>{
+        const id=btn.getAttribute('data-tgl'); const set=new Set(state.draft.involvedIds);
+        if(set.has(id)) set.delete(id); else set.add(id);
         state.draft.involvedIds=[...set]; state.draft.split = sanitizeSplitForParticipants(state.draft.split, state.draft.involvedIds);
         render();
       }));
-
       // Extra split fields
       document.querySelectorAll('[data-share]').forEach(inp=> inp.addEventListener('input', e=>{ state.draft.split.shares = {...(state.draft.split.shares||{}), [inp.dataset.share]: inp.value }; }));
       document.querySelectorAll('[data-percent]').forEach(inp=> inp.addEventListener('input', e=>{ state.draft.split.percents = {...(state.draft.split.percents||{}), [inp.dataset.percent]: inp.value }; }));
       document.querySelectorAll('[data-exact]').forEach(inp=> inp.addEventListener('input', e=>{ state.draft.split.exact = {...(state.draft.split.exact||{}), [inp.dataset.exact]: inp.value }; }));
 
-      document.getElementById('btnAddExpense').addEventListener('click', ()=>{
-        const d=state.draft; if(!d.payerId) return; const amt=parseAmount(d.amount); if(!amt||amt<=0) return;
-        const normalized={...d, amount: amt}; state.expenses = [normalized, ...state.expenses]; state.draft=null; saveLocal(); render();
-      });
+      const isEditing = !!state.editingId;
+      if(isEditing){
+        document.getElementById('btnSaveEdit').addEventListener('click', ()=>{
+          const d=state.draft; if(!d.payerId) return; const amt=parseAmount(d.amount); if(!amt||amt<=0) return;
+          state.expenses = state.expenses.map(x=> x.id===state.editingId ? {...d, amount: amt} : x);
+          state.draft=null; state.editingId=null; saveLocal(); state.activeTab='gastos'; render();
+        });
+        document.getElementById('btnCancelEdit').addEventListener('click', ()=>{ state.draft=null; state.editingId=null; render(); });
+      } else {
+        document.getElementById('btnAddExpense').addEventListener('click', ()=>{
+          const d=state.draft; if(!d.payerId) return; const amt=parseAmount(d.amount); if(!amt||amt<=0) return;
+          const normalized={...d, amount: amt}; state.expenses = [normalized, ...state.expenses]; state.draft=null; saveLocal(); state.activeTab='gastos'; render();
+        });
+      }
       document.getElementById('btnClearExpense').addEventListener('click', ()=>{ state.draft=null; render(); });
+    }
 
+    function bindGastos(){
       document.querySelectorAll('[data-del-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del-exp'); state.expenses = state.expenses.filter(x=>x.id!==id); saveLocal(); render(); }));
+      document.querySelectorAll('[data-edit-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-edit-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return; ensureDraft(exp); state.editingId=id; state.activeTab='nuevo'; render(); }));
     }
 
     function sanitizeSplitForParticipants(split, involvedIds){
