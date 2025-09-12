@@ -1,5 +1,5 @@
-// ===== JSONBin (hardcoded) =====
-const JSONBIN_BIN_ID = window.TRIPSPLIT_BIN_ID || "";
+// ===== JSONBin (current trip) =====
+let CURRENT_BIN_ID = window.TRIPSPLIT_BIN_ID || "";
 const JSONBIN_ROOT = 'https://api.jsonbin.io/v3/b';
 const JSONBIN_GET_URL = (id) => `${JSONBIN_ROOT}/${id}/latest`;
 const JSONBIN_PUT_URL = (id) => `${JSONBIN_ROOT}/${id}`;
@@ -9,8 +9,8 @@ const showStatus = (msg) => {const el=document.getElementById('status'); el.text
 
 // ===== App state =====
 const CATEGORIES = ['Comida','Transporte','Alojamiento','Entretenimiento','Compras','Combustible','Tours','Otros'];
-const state = {
-  currency: '$', // Fija
+const state = { tripName: 'Viaje 01',
+  currency: '$',
   participants: [{id:uid(),name:'Ana'},{id:uid(),name:'Juan'}],
   expenses: [], payments: [], draft:null, editingId:null, activeTab:'viajeros'
 };
@@ -53,6 +53,7 @@ function ensureDraft(fromExpense){ if(fromExpense){state.draft=JSON.parse(JSON.s
 
 function render(){const app=document.getElementById('app'); const calc=computeBalancesAndTotals(); const settlements=computeSettlements(calc.net);
   document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active', t.dataset.tab===state.activeTab); t.onclick=()=>{state.activeTab=t.dataset.tab; render();};});
+  bindTripTitle();
   let html=''; if(state.activeTab==='viajeros') html+=renderViajeros(); if(state.activeTab==='nuevo') html+=renderNuevo(); if(state.activeTab==='gastos') html+=renderGastos(); if(state.activeTab==='pagos') html+=renderPagos(calc); if(state.activeTab==='saldos') html+=renderSaldos(calc,settlements); if(state.activeTab==='resumen') html+=renderResumen();
   app.innerHTML = html; if(state.activeTab==='viajeros') bindViajeros(); if(state.activeTab==='nuevo') bindNuevo(); if(state.activeTab==='gastos') bindGastos(); if(state.activeTab==='pagos') bindPagos(); if(state.activeTab==='resumen') drawPie();
 }
@@ -263,6 +264,114 @@ function renderResumen(){
   </section>`;
 }
 
+// ===== Trips management (modal) =====
+const LS_TRIPS_KEY = 'tripsplit_trips';
+function loadTrips(){
+  try{ const arr = JSON.parse(localStorage.getItem(LS_TRIPS_KEY)||'[]'); return Array.isArray(arr)? arr : []; }catch(e){ return []; }
+}
+function saveTrips(list){ localStorage.setItem(LS_TRIPS_KEY, JSON.stringify(list)); }
+function parseBinId(input){
+  if(!input) return '';
+  const s = String(input).trim();
+  const m = s.match(/\/b\/([a-z0-9]+)(?:\/|$)/i);
+  return m ? m[1] : s;
+}
+function ensureTripsSeed(){
+  const trips = loadTrips();
+  if(trips.length===0 && CURRENT_BIN_ID){
+    trips.push({id: CURRENT_BIN_ID, name: 'Viaje 01'});
+    saveTrips(trips);
+  }
+}
+function setCurrentTrip(binId){
+  if(!binId) return;
+  CURRENT_BIN_ID = binId;
+  startPolling();
+  (async()=>{ const data = await fetchBin(); if(data) applyRemote(data); if(!state.tripName){ state.tripName = (loadTrips().find(t=>t.id===binId)?.name) || 'Viaje 01'; } render(); })();
+}
+function openTripModal(){
+  const trips = loadTrips();
+  const overlay=document.createElement('div'); overlay.className='modal-overlay';
+  const curr = CURRENT_BIN_ID;
+  const items = trips.map(t=>`
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <button class="btn" data-sel-trip="${t.id}">${escapeHtml(t.name||t.id)} ${t.id===curr? ' (actual)' : ''}</button>
+    </div>`).join('');
+
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:720px">
+      <div class="row" style="justify-content:space-between">
+        <h2>Viajes</h2>
+        <button class="btn" data-close>✕</button>
+      </div>
+      <div class="spacer"></div>
+      <label class="block"><div class="label">Nombre del viaje actual</div>
+        <input id="modalTripName" value="${escapeHtml(state.tripName||'')}" placeholder="Viaje 01">
+      </label>
+      <div class="spacer"></div>
+      <div class="label">Mis viajes</div>
+      <div id="tripList">${items || '<div class="muted">No hay otros viajes guardados aún.</div>'}</div>
+      <div class="spacer"></div>
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <button class="btn" data-add>+ Agregar viaje</button>
+        <div class="row" style="gap:8px">
+          <button class="btn" data-save>Guardar nombre</button>
+          <button class="btn" data-close>Cerrar</button>
+        </div>
+      </div>
+    </div>`;
+
+  function close(){ document.body.removeChild(overlay); }
+  overlay.addEventListener('click',(ev)=>{ if(ev.target===overlay || ev.target.hasAttribute('data-close')) close(); });
+
+  overlay.querySelector('[data-save]').addEventListener('click', ()=>{
+    const val = String(overlay.querySelector('#modalTripName').value||'').trim() || 'Viaje 01';
+    state.tripName = val;
+    const arr = loadTrips();
+    const t = arr.find(x=>x.id===CURRENT_BIN_ID);
+    if(t) t.name = val;
+    saveTrips(arr);
+    saveMaybe();
+    const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
+    close();
+  });
+
+  overlay.querySelector('[data-add]').addEventListener('click', ()=>{
+    const idRaw = prompt('Pegá el enlace o ID del BIN del nuevo viaje:');
+    const id = parseBinId(idRaw||'');
+    if(!id) return;
+    let name = prompt('Nombre para este viaje:','Viaje nuevo') || 'Viaje nuevo';
+    const arr = loadTrips();
+    if(!arr.find(t=>t.id===id)) arr.push({id, name});
+    saveTrips(arr);
+    setCurrentTrip(id);
+    state.tripName = name;
+    saveMaybe();
+    const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
+    close();
+  });
+
+  overlay.querySelectorAll('[data-sel-trip]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id = btn.getAttribute('data-sel-trip');
+    setCurrentTrip(id);
+    const t = loadTrips().find(x=>x.id===id);
+    if(t) state.tripName = t.name || state.tripName;
+    saveMaybe();
+    const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
+    close();
+  }));
+
+  document.body.appendChild(overlay);
+}
+
+function bindTripTitle(){
+  const h = document.getElementById('tripTitle');
+  if(!h) return;
+  h.textContent = state.tripName || 'Viaje 01';
+  h.addEventListener('click', openTripModal);
+  h.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); openTripModal(); }});
+}
+
 // ===== Bindings =====
 function bindViajeros(){document.getElementById('btnAddPerson').addEventListener('click',()=>{const name=document.getElementById('inpNewName').value.trim(); if(!name) return; state.participants.push({id:uid(),name}); document.getElementById('inpNewName').value=''; saveMaybe(); render();});
   document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.getAttribute('data-del'); state.participants=state.participants.filter(p=>p.id!==id);
@@ -298,16 +407,16 @@ function bindPagos(){document.getElementById('btnAddPayment').addEventListener('
 }
 
 // ===== Sync =====
-function serializeState(){ return {currency:state.currency,participants:state.participants,expenses:state.expenses,payments:state.payments,__ts:Date.now()}; }
-function applyRemote(d){ if(!d) return; state.currency = d.currency ?? state.currency; state.participants = Array.isArray(d.participants)? d.participants : state.participants; state.expenses = Array.isArray(d.expenses)? d.expenses : state.expenses; state.payments = Array.isArray(d.payments)? d.payments : state.payments; lastRemoteTs=d.__ts||Date.now(); state.draft=null; state.editingId=null; }
-const saveRemoteDebounced = debounce(()=>{const payload=serializeState(); lastRemoteTs=payload.__ts; fetch(JSONBIN_PUT_URL(JSONBIN_BIN_ID),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(()=>showStatus('Guardado')).catch(()=>{});},300);
+function serializeState(){ return {tripName:state.tripName,currency:state.currency,participants:state.participants,expenses:state.expenses,payments:state.payments,__ts:Date.now()}; }
+function applyRemote(d){ if(!d) return; state.tripName = (typeof d.tripName==='string' && d.tripName.trim()) ? d.tripName : state.tripName; state.currency = d.currency ?? state.currency; state.participants = Array.isArray(d.participants)? d.participants : state.participants; state.expenses = Array.isArray(d.expenses)? d.expenses : state.expenses; state.payments = Array.isArray(d.payments)? d.payments : state.payments; lastRemoteTs=d.__ts||Date.now(); state.draft=null; state.editingId=null; }
+const saveRemoteDebounced = debounce(()=>{const payload=serializeState(); lastRemoteTs=payload.__ts; fetch(JSONBIN_PUT_URL(CURRENT_BIN_ID),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(()=>showStatus('Guardado')).catch(()=>{});},300);
 function saveMaybe(){saveRemoteDebounced();}
-async function fetchBin(){try{const r=await fetch(JSONBIN_GET_URL(JSONBIN_BIN_ID)); if(!r.ok) throw new Error('GET failed'); const j=await r.json(); return j&&j.record? j.record : null;}catch(e){return null;}}
+async function fetchBin(){try{const r=await fetch(JSONBIN_GET_URL(CURRENT_BIN_ID)); if(!r.ok) throw new Error('GET failed'); const j=await r.json(); return j&&j.record? j.record : null;}catch(e){return null;}}
 function startPolling(){clearInterval(pollTimer); pollTimer=setInterval(async()=>{const remote=await fetchBin(); if(remote && remote.__ts && remote.__ts!==lastRemoteTs){applyRemote(remote); render(); showStatus('Sincronizado');}},3000);}
 
 // ===== Init & Share =====
 document.getElementById('btnShare').addEventListener('click',()=>{const url=location.origin+location.pathname; if(navigator.clipboard) navigator.clipboard.writeText(url).then(()=>showStatus('Link copiado ✨')); else prompt('Copiá este link:',url);});
-(async function init(){startPolling(); const data=await fetchBin(); if(data) applyRemote(data); render();})();
+(async function init(){ ensureTripsSeed(); setCurrentTrip(CURRENT_BIN_ID || (loadTrips()[0]?.id)||''); const data=await fetchBin(); if(data) applyRemote(data); render(); })();
 
 // ===== Pie =====
 function drawPie(){const ctx=document.getElementById('pie'); if(!ctx) return; const totals={}; let grand=0; for(const e of state.expenses){const cat=e.category||'Otros'; const amt=parseAmount(e.amount)||0; if(amt<=0) continue; totals[cat]=(totals[cat]||0)+amt; grand+=amt;} const keys=Object.keys(totals); if(keys.length===0||grand===0) return; const cx=ctx.getContext('2d'); const cxm=ctx.width/2, cym=ctx.height/2, r=Math.min(cxm,cym)-8; cx.clearRect(0,0,ctx.width,ctx.height); let start=0; keys.forEach((k,i)=>{const frac=totals[k]/grand; const end=start+frac*2*Math.PI; cx.beginPath(); cx.moveTo(cxm,cym); cx.arc(cxm,cym,r,start,end); cx.closePath(); const hue=Math.floor((i/keys.length)*330); cx.fillStyle=`hsl(${hue} 70% 55%)`; cx.fill(); start=end;}); cx.beginPath(); cx.arc(cxm,cym,r*0.55,0,2*Math.PI); cx.fillStyle='#fff'; cx.fill();}
