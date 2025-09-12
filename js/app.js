@@ -1,5 +1,10 @@
 // ===== JSONBin (current trip) =====
 let CURRENT_BIN_ID = window.TRIPSPLIT_BIN_ID || "";
+const KNOWN_BINS = [
+  {id: CURRENT_BIN_ID, name: 'Viaje 01'},
+  {id: '68c491b9ae596e708fecc3ca', name: 'Viaje 02'},
+  {id: '68c491cd43b1c97be94105f7', name: 'Viaje 03'}
+];
 const JSONBIN_ROOT = 'https://api.jsonbin.io/v3/b';
 const JSONBIN_GET_URL = (id) => `${JSONBIN_ROOT}/${id}/latest`;
 const JSONBIN_PUT_URL = (id) => `${JSONBIN_ROOT}/${id}`;
@@ -277,10 +282,11 @@ function parseBinId(input){
   return m ? m[1] : s;
 }
 function ensureTripsSeed(){
-  const trips = loadTrips();
-  if(trips.length===0 && CURRENT_BIN_ID){
-    trips.push({id: CURRENT_BIN_ID, name: 'Viaje 01'});
-  }
+  const existing = loadTrips();
+  const map = Object.fromEntries(existing.map(t=>[t.id, t.name]));
+  const seeded = KNOWN_BINS.map((t,i)=>({id:t.id, name: map[t.id] || t.name || `Viaje ${String(i+1).padStart(2,'0')}`}));
+  saveTrips(seeded);
+}
 
   // Pre-carga de otros viajes (proporcionados por el usuario)
   const SEED_EXTRA = [
@@ -298,76 +304,58 @@ function setCurrentTrip(binId){
   (async()=>{ const data = await fetchBin(); if(data) applyRemote(data); if(!state.tripName){ state.tripName = (loadTrips().find(t=>t.id===binId)?.name) || 'Viaje 01'; } render(); })();
 }
 function openTripModal(){
+  ensureTripsSeed();
   const trips = loadTrips();
   const overlay=document.createElement('div'); overlay.className='modal-overlay';
   const curr = CURRENT_BIN_ID;
   const items = trips.map(t=>`
-    <div class="row" style="justify-content:space-between;margin-bottom:6px">
-      <button class="btn" data-sel-trip="${t.id}">${escapeHtml(t.name||t.id)} ${t.id===curr? ' (actual)' : ''}</button>
-    </div>`).join('');
+    <label class="card" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="row" style="gap:8px"><input type="radio" name="tripPick" value="${t.id}" ${t.id===curr?'checked':''}> <b>${escapeHtml(t.name||t.id)}</b></div>
+      <span class="muted">${t.id===curr? 'actual' : ''}</span>
+    </label>`).join('');
 
   overlay.innerHTML = `
     <div class="modal" style="max-width:720px">
       <div class="row" style="justify-content:space-between">
-        <h2>Viajes</h2>
+        <h2>Seleccionar viaje</h2>
         <button class="btn" data-close>✕</button>
       </div>
       <div class="spacer"></div>
-      <label class="block"><div class="label">Nombre del viaje actual</div>
-        <input id="modalTripName" value="${escapeHtml(state.tripName||'')}" placeholder="Viaje 01">
+      <div id="tripList">${items}</div>
+      <div class="spacer"></div>
+      <label class="block"><div class="label">Nombre del viaje seleccionado</div>
+        <input id="modalTripName" value="${escapeHtml((trips.find(x=>x.id===curr)?.name)||'')}" placeholder="Viaje 01">
       </label>
       <div class="spacer"></div>
-      <div class="label">Mis viajes</div>
-      <div id="tripList">${items || '<div class="muted">No hay otros viajes guardados aún.</div>'}</div>
-      <div class="spacer"></div>
-      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <button class="btn" data-add>+ Agregar viaje</button>
-        <div class="row" style="gap:8px">
-          <button class="btn" data-save>Guardar nombre</button>
-          <button class="btn" data-close>Cerrar</button>
-        </div>
+      <div class="row" style="justify-content:flex-end;gap:8px">
+        <button class="btn" data-save>Guardar</button>
+        <button class="btn" data-close>Cerrar</button>
       </div>
     </div>`;
 
   function close(){ document.body.removeChild(overlay); }
   overlay.addEventListener('click',(ev)=>{ if(ev.target===overlay || ev.target.hasAttribute('data-close')) close(); });
 
+  overlay.querySelectorAll('input[name="tripPick"]').forEach(r=>{
+    r.addEventListener('change', ()=>{
+      const id = r.value; setCurrentTrip(id);
+      const t = loadTrips().find(x=>x.id===id);
+      if(t) state.tripName = t.name || state.tripName;
+      const title = document.getElementById('tripTitle'); if(title) title.textContent = state.tripName;
+      const nameInput = overlay.querySelector('#modalTripName'); if(nameInput) nameInput.value = state.tripName;
+    });
+  });
+
   overlay.querySelector('[data-save]').addEventListener('click', ()=>{
-    const val = String(overlay.querySelector('#modalTripName').value||'').trim() || 'Viaje 01';
-    state.tripName = val;
+    const name = String(overlay.querySelector('#modalTripName').value||'').trim() || 'Viaje 01';
     const arr = loadTrips();
     const t = arr.find(x=>x.id===CURRENT_BIN_ID);
-    if(t) t.name = val;
+    if(t) t.name = name;
     saveTrips(arr);
-    saveMaybe();
+    state.tripName = name; saveMaybe();
     const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
     close();
   });
-
-  overlay.querySelector('[data-add]').addEventListener('click', ()=>{
-    const idRaw = prompt('Pegá el enlace o ID del BIN del nuevo viaje:');
-    const id = parseBinId(idRaw||'');
-    if(!id) return;
-    let name = prompt('Nombre para este viaje:','Viaje nuevo') || 'Viaje nuevo';
-    const arr = loadTrips();
-    if(!arr.find(t=>t.id===id)) arr.push({id, name});
-    saveTrips(arr);
-    setCurrentTrip(id);
-    state.tripName = name;
-    saveMaybe();
-    const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
-    close();
-  });
-
-  overlay.querySelectorAll('[data-sel-trip]').forEach(btn=>btn.addEventListener('click',()=>{
-    const id = btn.getAttribute('data-sel-trip');
-    setCurrentTrip(id);
-    const t = loadTrips().find(x=>x.id===id);
-    if(t) state.tripName = t.name || state.tripName;
-    saveMaybe();
-    const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
-    close();
-  }));
 
   document.body.appendChild(overlay);
 }
