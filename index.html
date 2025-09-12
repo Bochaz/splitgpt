@@ -4,504 +4,353 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>TripSplit – Divisor de gastos</title>
-  <!-- Tailwind (CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- React 18 (UMD) + Babel para compilar JSX en el navegador -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    :root{--bg:#f6f7f8;--panel:#fff;--text:#111;--muted:#6b7280;--border:#e5e7eb;--primary:#111;--primary-contrast:#fff;--danger:#b91c1c;--ok:#065f46}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    header{position:sticky;top:0;backdrop-filter:saturate(180%) blur(10px);background:rgba(255,255,255,.8);border-bottom:1px solid var(--border)}
+    .container{max-width:1000px;margin:0 auto;padding:16px}
+    h1{font-size:22px;margin:0;font-weight:900;letter-spacing:-.02em}
+    .chip{display:inline-flex;align-items:center;font-size:12px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;margin-left:8px}
+    .row{display:flex;gap:8px;align-items:center}
+    .btn{border:1px solid var(--border);background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+    .btn:hover{background:#f3f4f6}
+    .btn.primary{background:var(--primary);color:var(--primary-contrast);border-color:var(--primary)}
+    .btn.danger{color:var(--danger);border-color:var(--danger)}
+    section.panel{background:var(--panel);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.06);padding:16px;margin:16px 0}
+    section.panel h2{margin:0 0 12px 0;font-size:18px}
+    label.block{display:block}
+    .label{font-size:12px;color:var(--muted);margin-bottom:4px}
+    input,select{width:100%;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff}
+    .grid{display:grid;gap:10px}
+    @media(min-width:780px){.grid-6{grid-template-columns:repeat(6,1fr)}}
+    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:14px;padding:6px 10px;background:#fff}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
+    td.right{text-align:right}
+    .muted{color:var(--muted)}
+    .card{border:1px solid var(--border);border-radius:12px;padding:12px;background:#fff}
+    .ok{color:var(--ok)} .bad{color:var(--danger)}
+    .spacer{height:8px}
+  </style>
 </head>
-<body class="bg-gray-50">
-  <div id="root"></div>
+<body>
+  <header>
+    <div class="container row" style="justify-content:space-between">
+      <div class="row">
+        <h1>TripSplit</h1>
+        <span class="chip">Divisor de gastos</span>
+      </div>
+      <div class="row">
+        <button id="btnShare" class="btn">Compartir link</button>
+        <button id="btnExport" class="btn">Exportar JSON</button>
+        <label class="btn" style="cursor:pointer">Importar JSON
+          <input id="fileImport" type="file" accept="application/json" style="display:none" />
+        </label>
+      </div>
+    </div>
+  </header>
 
-  <!-- App en JSX: podés editar todo este bloque. Guarda este archivo como index.html y subilo tal cual. -->
-  <script type="text/babel">
-    const { useEffect, useMemo, useState } = React;
+  <main class="container" id="app"></main>
 
-    const uid = () => Math.random().toString(36).slice(2, 9);
-
-    const formatAmount = (n) => {
-      if (Number.isNaN(n) || n === null || n === undefined) return "0";
-      return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    };
-    const parseAmount = (s) => {
-      if (typeof s === "number") return s;
-      if (!s) return 0;
-      const clean = String(s).replace(/[^0-9,.-]/g, "").replace(",", ".");
-      const n = parseFloat(clean);
-      return Number.isFinite(n) ? n : 0;
-    };
-
-    const encodeStateForURL = (state) => {
-      try {
-        const json = JSON.stringify(state);
-        const b64 = btoa(unescape(encodeURIComponent(json)));
-        return `#data=${b64}`;
-      } catch (e) { console.error(e); return ""; }
-    };
-    const decodeStateFromURL = () => {
-      try {
-        const hash = window.location.hash || "";
-        const m = hash.match(/#data=([A-Za-z0-9+/=\-_]+)/);
-        if (!m) return null;
-        const json = decodeURIComponent(escape(atob(m[1])));
-        return JSON.parse(json);
-      } catch (e) { console.error(e); return null; }
+  <script>
+    // ---------- Estado y utilidades ----------
+    const state = {
+      currency: '$',
+      participants: [ { id: uid(), name: 'Ana' }, { id: uid(), name: 'Juan' } ],
+      expenses: [],
+      draft: null,
     };
 
-    const computeSettlements = (balances) => {
-      const debtors = [], creditors = [];
-      Object.entries(balances).forEach(([id, net]) => {
-        if (Math.abs(net) < 1e-8) return;
-        if (net < 0) debtors.push({ id, amount: -net });
-        if (net > 0) creditors.push({ id, amount: net });
-      });
-      debtors.sort((a, b) => b.amount - a.amount);
-      creditors.sort((a, b) => b.amount - a.amount);
-      const transfers = [];
-      let i = 0, j = 0;
-      while (i < debtors.length && j < creditors.length) {
-        const d = debtors[i];
-        const c = creditors[j];
-        const amt = Math.min(d.amount, c.amount);
-        transfers.push({ from: d.id, to: c.id, amount: amt });
-        d.amount -= amt; c.amount -= amt;
-        if (d.amount <= 1e-8) i++;
-        if (c.amount <= 1e-8) j++;
-      }
-      return transfers;
-    };
+    function uid(){return Math.random().toString(36).slice(2,9)}
+    function formatAmount(n){ if(Number.isNaN(n)||n==null) return '0.00'; return Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+    function parseAmount(s){ if(typeof s==='number') return s; if(!s) return 0; const clean=String(s).replace(/[^0-9,.-]/g,'').replace(',','.'); const n=parseFloat(clean); return Number.isFinite(n)?n:0; }
 
-    const Section = ({ title, children, right }) => (
-      <section className="bg-white rounded-2xl shadow p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">{title}</h2>
-          {right}
-        </div>
-        {children}
-      </section>
-    );
+    function encodeStateForURL(st){ try{ const json=JSON.stringify(st); const b64=btoa(unescape(encodeURIComponent(json))); return '#data='+b64; }catch(e){ console.error(e); return ''; } }
+    function decodeStateFromURL(){ try{ const m=(location.hash||'').match(/#data=([A-Za-z0-9+/=\-_]+)/); if(!m) return null; const json=decodeURIComponent(escape(atob(m[1]))); return JSON.parse(json); }catch(e){ console.error(e); return null; } }
 
-    const Chip = ({ children }) => (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium">{children}</span>
-    );
+    function saveLocal(){ const {currency,participants,expenses}=state; localStorage.setItem('tripsplit', JSON.stringify({currency,participants,expenses})); }
+    function loadLocal(){ const raw=localStorage.getItem('tripsplit'); if(!raw) return; try{ const d=JSON.parse(raw); if(d&&d.participants){ state.currency=d.currency??'$'; state.participants=d.participants; state.expenses=d.expenses||[]; } }catch(e){} }
 
-    const Input = ({ label, className = "", ...props }) => (
-      <label className="block">
-        {label && <div className="text-sm text-gray-600 mb-1">{label}</div>}
-        <input {...props} className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring focus:border-black ${className}`} />
-      </label>
-    );
-
-    const Select = ({ label, className = "", children, ...props }) => (
-      <label className="block">
-        {label && <div className="text-sm text-gray-600 mb-1">{label}</div>}
-        <select {...props} className={`w-full border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring focus:border-black ${className}`}>{children}</select>
-      </label>
-    );
-
-    function App() {
-      const urlState = decodeStateFromURL();
-      const [currency, setCurrency] = useState(urlState?.currency ?? "$");
-      const [participants, setParticipants] = useState(urlState?.participants ?? [
-        { id: uid(), name: "Ana" },
-        { id: uid(), name: "Juan" },
-      ]);
-      const [expenses, setExpenses] = useState(urlState?.expenses ?? []);
-
-      useEffect(() => {
-        const payload = { currency, participants, expenses };
-        localStorage.setItem("tripsplit", JSON.stringify(payload));
-      }, [currency, participants, expenses]);
-
-      useEffect(() => {
-        if (urlState) return;
-        const raw = localStorage.getItem("tripsplit");
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (parsed && parsed.participants) {
-              setParticipants(parsed.participants);
-              setExpenses(parsed.expenses || []);
-              setCurrency(parsed.currency ?? "$");
-            }
-          } catch {}
+    function computeBalancesAndTotals(){
+      const bal = {}; state.participants.forEach(p=>bal[p.id]=0);
+      for(const e of state.expenses){
+        const amt=parseAmount(e.amount); if(!amt||amt<=0) continue;
+        const involved=(e.involvedIds||[]).filter(id=>state.participants.find(p=>p.id===id));
+        if(involved.length===0) continue;
+        const perHead={};
+        if(e.split?.mode==='equal'){
+          const share=amt/involved.length; involved.forEach(id=>perHead[id]=share);
+        }else if(e.split?.mode==='shares'){
+          const totalShares=involved.reduce((a,id)=>a+(parseAmount(e.split.shares?.[id])||0),0);
+          involved.forEach(id=>{ const s=parseAmount(e.split.shares?.[id])||0; perHead[id]= totalShares>0? (amt*s)/totalShares : 0; });
+        }else if(e.split?.mode==='percent'){
+          const totalPct=involved.reduce((a,id)=>a+(parseAmount(e.split.percents?.[id])||0),0);
+          involved.forEach(id=>{ const p=parseAmount(e.split.percents?.[id])||0; perHead[id]= totalPct>0? (amt*p)/totalPct : 0; });
+        }else if(e.split?.mode==='exact'){
+          involved.forEach(id=>perHead[id]=parseAmount(e.split.exact?.[id])||0);
+          const sumExact=Object.values(perHead).reduce((a,b)=>a+b,0);
+          if(sumExact>0 && Math.abs(sumExact-amt)>0.01){ const factor=amt/sumExact; for(const k in perHead) perHead[k]*=factor; }
+        }else{
+          const share=amt/involved.length; involved.forEach(id=>perHead[id]=share);
         }
-      }, []);
-
-      const addParticipant = (name) => {
-        if (!name?.trim()) return;
-        setParticipants((p) => [...p, { id: uid(), name: name.trim() }]);
-      };
-      const removeParticipant = (id) => {
-        setParticipants((list) => list.filter((p) => p.id !== id));
-        setExpenses((list) => list.map((e) => {
-          const involvedIds = e.involvedIds?.filter((pid) => pid !== id) || [];
-          const split = sanitizeSplitForParticipants(e.split, involvedIds);
-          const payerId = e.payerId === id ? null : e.payerId;
-          return { ...e, involvedIds, split, payerId };
-        }));
-      };
-
-      const sanitizeSplitForParticipants = (split, involvedIds) => {
-        const set = new Set(involvedIds);
-        if (!split) return { mode: "equal" };
-        const clone = JSON.parse(JSON.stringify(split));
-        if (clone.shares) Object.keys(clone.shares).forEach((k) => !set.has(k) && delete clone.shares[k]);
-        if (clone.percents) Object.keys(clone.percents).forEach((k) => !set.has(k) && delete clone.percents[k]);
-        if (clone.exact) Object.keys(clone.exact).forEach((k) => !set.has(k) && delete clone.exact[k]);
-        return clone;
-      };
-
-      const [newName, setNewName] = useState("");
-      const emptyExpense = () => ({
-        id: uid(),
-        desc: "",
-        amount: 0,
-        date: new Date().toISOString().slice(0, 10),
-        payerId: participants[0]?.id || null,
-        involvedIds: participants.map((p) => p.id),
-        split: { mode: "equal" },
-      });
-      const [draft, setDraft] = useState(emptyExpense());
-
-      useEffect(() => {
-        setDraft((d) => ({ ...d, payerId: d.payerId ?? participants[0]?.id || null }));
-      }, [participants]);
-
-      const addExpense = () => {
-        if (!draft.payerId || !draft.amount || draft.amount <= 0) return;
-        const normalized = { ...draft, amount: parseAmount(draft.amount) };
-        setExpenses((e) => [normalized, ...e]);
-        setDraft(emptyExpense());
-      };
-      const removeExpense = (id) => setExpenses((e) => e.filter((x) => x.id !== id));
-
-      const { balances, totals } = useMemo(() => {
-        const bal = {}; participants.forEach((p) => (bal[p.id] = 0));
-        expenses.forEach((e) => {
-          const amt = parseAmount(e.amount); if (!amt || amt <= 0) return;
-          const involved = (e.involvedIds || []).filter((id) => participants.find((p) => p.id === id));
-          if (involved.length === 0) return;
-          let perHead = {};
-          if (e.split?.mode === "equal") {
-            const share = amt / involved.length; involved.forEach((id) => (perHead[id] = share));
-          } else if (e.split?.mode === "shares") {
-            const totalShares = involved.reduce((acc, id) => acc + (parseAmount(e.split.shares?.[id]) || 0), 0);
-            involved.forEach((id) => { const s = parseAmount(e.split.shares?.[id]) || 0; perHead[id] = totalShares > 0 ? (amt * s) / totalShares : 0; });
-          } else if (e.split?.mode === "percent") {
-            const totalPct = involved.reduce((acc, id) => acc + (parseAmount(e.split.percents?.[id]) || 0), 0);
-            involved.forEach((id) => { const p = parseAmount(e.split.percents?.[id]) || 0; perHead[id] = totalPct > 0 ? (amt * p) / totalPct : 0; });
-          } else if (e.split?.mode === "exact") {
-            involved.forEach((id) => (perHead[id] = parseAmount(e.split.exact?.[id]) || 0));
-            const sumExact = Object.values(perHead).reduce((a, b) => a + b, 0);
-            if (sumExact > 0 && Math.abs(sumExact - amt) > 0.01) {
-              const factor = amt / sumExact; Object.keys(perHead).forEach((k) => (perHead[k] *= factor));
-            }
-          } else {
-            const share = amt / involved.length; involved.forEach((id) => (perHead[id] = share));
-          }
-          if (e.payerId) bal[e.payerId] += amt;
-          involved.forEach((id) => (bal[id] -= perHead[id]));
-        });
-
-        const totals = {
-          paidBy: Object.fromEntries(participants.map((p) => [p.id, 0])),
-          owedBy: Object.fromEntries(participants.map((p) => [p.id, 0])),
-        };
-        expenses.forEach((e) => {
-          const amt = parseAmount(e.amount); if (!amt || amt <= 0) return;
-          if (e.payerId) totals.paidBy[e.payerId] += amt;
-          const involved = e.involvedIds || [];
-          if (e.split?.mode === "equal") {
-            const share = amt / involved.length; involved.forEach((id) => (totals.owedBy[id] += share));
-          } else if (e.split?.mode === "shares") {
-            const totalShares = involved.reduce((acc, id) => acc + (parseAmount(e.split.shares?.[id]) || 0), 0);
-            involved.forEach((id) => { const s = parseAmount(e.split.shares?.[id]) || 0; totals.owedBy[id] += totalShares > 0 ? (amt * s) / totalShares : 0; });
-          } else if (e.split?.mode === "percent") {
-            const totalPct = involved.reduce((acc, id) => acc + (parseAmount(e.split.percents?.[id]) || 0), 0);
-            involved.forEach((id) => { const p = parseAmount(e.split.percents?.[id]) || 0; totals.owedBy[id] += totalPct > 0 ? (amt * p) / totalPct : 0; });
-          } else if (e.split?.mode === "exact") {
-            involved.forEach((id) => (totals.owedBy[id] += parseAmount(e.split.exact?.[id]) || 0));
-          }
-        });
-        return { balances: bal, totals };
-      }, [participants, expenses]);
-
-      const settlements = useMemo(() => computeSettlements(balances), [balances]);
-      const nameById = (id) => participants.find((p) => p.id === id)?.name || "(?)";
-
-      const shareURL = () => {
-        const payload = { currency, participants, expenses };
-        const hash = encodeStateForURL(payload);
-        const url = window.location.origin + window.location.pathname + hash;
-        navigator.clipboard?.writeText(url);
-        alert("Link copiado al portapapeles. Compartilo con tu grupo ✨");
-      };
-
-      const exportJSON = () => {
-        const payload = { currency, participants, expenses };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tripsplit.json"; a.click();
-      };
-
-      const importJSON = (file) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const data = JSON.parse(reader.result);
-            if (data.participants && data.expenses) {
-              setCurrency(data.currency ?? "$");
-              setParticipants(data.participants);
-              setExpenses(data.expenses);
-            } else alert("Archivo inválido");
-          } catch (e) { alert("No se pudo leer el archivo"); }
-        };
-        reader.readAsText(file);
-      };
-
-      return (
-        <div className="min-h-screen bg-gray-50 text-gray-900">
-          <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b">
-            <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
-              <div className="text-2xl font-black tracking-tight">TripSplit</div>
-              <Chip>Divisor de gastos</Chip>
-              <div className="ml-auto flex gap-2">
-                <button onClick={shareURL} className="px-3 py-2 rounded-lg border hover:bg-gray-100">Compartir link</button>
-                <button onClick={exportJSON} className="px-3 py-2 rounded-lg border hover:bg-gray-100">Exportar JSON</button>
-                <label className="px-3 py-2 rounded-lg border hover:bg-gray-100 cursor-pointer">Importar
-                  <input type="file" className="hidden" accept="application/json" onChange={(e) => { const f = e.target.files?.[0]; if (f) importJSON(f); }} />
-                </label>
-              </div>
-            </div>
-          </header>
-
-          <main className="max-w-5xl mx-auto px-4 py-6">
-            <PeopleSection {...{ currency, setCurrency, addParticipant, participants, setParticipants }} />
-            <NewExpenseSection {...{ participants, currency }} onAdd={(exp) => setExpenses((e) => [exp, ...e])} />
-            <ExpensesTable {...{ expenses, participants, currency, removeExpense }} />
-            <BalancesSection {...{ participants, balances, totals, currency }} />
-            <SettlementsSection {...{ settlements, nameById, currency }} />
-            <footer className="text-center text-xs text-gray-500 mt-10">Hecho con ❤️ para dividir gastos de viaje. Todo queda en tu dispositivo y en el link que compartas.</footer>
-          </main>
-        </div>
-      );
-
-      function PeopleSection({ currency, setCurrency, addParticipant, participants, setParticipants }) {
-        const [newName, setNewName] = useState("");
-        const remove = (id) => {
-          setParticipants((list) => list.filter((p) => p.id !== id));
-        };
-        return (
-          <Section title="Moneda & Personas" right={
-            <div className="flex items-end gap-2">
-              <Input label="Símbolo de moneda" value={currency} onChange={(e) => setCurrency(e.target.value)} style={{width:80}} />
-              <Input label="Nuevo participante" placeholder="Nombre" value={newName} onChange={(e) => setNewName(e.target.value)} />
-              <button className="px-3 py-2 rounded-lg bg-black text-white" onClick={() => { addParticipant(newName); setNewName(""); }}>Agregar</button>
-            </div>
-          }>
-            <div className="flex flex-wrap gap-3">
-              {participants.map((p) => (
-                <div key={p.id} className="flex items-center gap-2 border rounded-xl px-3 py-2 bg-white">
-                  <span className="font-medium">{p.name}</span>
-                  <button className="text-red-500 hover:underline" onClick={() => remove(p.id)}>quitar</button>
-                </div>
-              ))}
-              {participants.length === 0 && <div className="text-gray-500">Agregá participantes para empezar</div>}
-            </div>
-          </Section>
-        );
+        if(e.payerId) bal[e.payerId]+=amt;
+        involved.forEach(id=>bal[id]-=perHead[id]);
       }
-
-      function NewExpenseSection({ participants, currency, onAdd }) {
-        const emptyExpense = () => ({ id: uid(), desc: "", amount: 0, date: new Date().toISOString().slice(0,10), payerId: participants[0]?.id || null, involvedIds: participants.map((p) => p.id), split: { mode: "equal" } });
-        const [draft, setDraft] = useState(emptyExpense());
-        useEffect(() => { setDraft((d) => ({ ...d, payerId: d.payerId ?? participants[0]?.id || null, involvedIds: participants.map((p)=>p.id) })); }, [participants]);
-        const nameById = (id) => participants.find((p) => p.id === id)?.name || "(?)";
-        const sanitizeSplitForParticipants = (split, involvedIds) => {
-          const set = new Set(involvedIds);
-          if (!split) return { mode: "equal" };
-          const clone = JSON.parse(JSON.stringify(split));
-          if (clone.shares) Object.keys(clone.shares).forEach((k) => !set.has(k) && delete clone.shares[k]);
-          if (clone.percents) Object.keys(clone.percents).forEach((k) => !set.has(k) && delete clone.percents[k]);
-          if (clone.exact) Object.keys(clone.exact).forEach((k) => !set.has(k) && delete clone.exact[k]);
-          return clone;
-        };
-        const addExpense = () => {
-          if (!draft.payerId || !draft.amount || draft.amount <= 0) return;
-          const normalized = { ...draft, amount: parseAmount(draft.amount) };
-          onAdd(normalized); setDraft(emptyExpense());
-        };
-        return (
-          <Section title="Nuevo gasto">
-            <div className="grid md:grid-cols-6 gap-3">
-              <Input label="Descripción" placeholder="Ej: Cena, Nafta, Hotel" value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} className="md:col-span-2" />
-              <Input label="Monto" placeholder="0,00" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} />
-              <Input label="Fecha" type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
-              <Select label="Pagó" value={draft.payerId || ''} onChange={(e) => setDraft({ ...draft, payerId: e.target.value })}>
-                <option value='' disabled>Seleccioná</option>
-                {participants.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-              </Select>
-              <Select label="Modo de división" value={draft.split?.mode} onChange={(e) => setDraft({ ...draft, split: { mode: e.target.value } })}>
-                <option value="equal">Partes iguales</option>
-                <option value="shares">Por ponderaciones</option>
-                <option value="percent">Por porcentaje</option>
-                <option value="exact">Montos exactos</option>
-              </Select>
-            </div>
-            <div className="mt-4">
-              <div className="text-sm text-gray-600 mb-2">¿Quiénes participan de este gasto?</div>
-              <div className="flex flex-wrap gap-2">
-                {participants.map((p) => {
-                  const checked = draft.involvedIds.includes(p.id);
-                  return (
-                    <label key={p.id} className={`cursor-pointer select-none border rounded-xl px-3 py-2 ${checked ? "bg-black text-white" : "bg-white"}`}>
-                      <input type="checkbox" className="hidden" checked={checked} onChange={(e) => {
-                        const set = new Set(draft.involvedIds);
-                        if (e.target.checked) set.add(p.id); else set.delete(p.id);
-                        const involvedIds = Array.from(set);
-                        const split = sanitizeSplitForParticipants(draft.split, involvedIds);
-                        setDraft({ ...draft, involvedIds, split });
-                      }} />
-                      {p.name}
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-            {draft.split?.mode !== "equal" && (
-              <div className="mt-4 p-3 border rounded-xl bg-gray-50">
-                {draft.split?.mode === "shares" && (
-                  <div>
-                    <div className="text-sm text-gray-600 mb-2">Asigná ponderaciones (ej.: 1, 2, 3). Se divide proporcionalmente.</div>
-                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
-                      {draft.involvedIds.map((id) => (
-                        <Input key={id} label={participants.find(p=>p.id===id)?.name} placeholder="1" value={draft.split.shares?.[id] ?? ''} onChange={(e) => setDraft({ ...draft, split: { ...draft.split, shares: { ...(draft.split.shares || {}), [id]: e.target.value } } })} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {draft.split?.mode === "percent" && (
-                  <div>
-                    <div className="text-sm text-gray-600 mb-2">Porcentaje por persona (suma recomendable: 100).</div>
-                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
-                      {draft.involvedIds.map((id) => (
-                        <Input key={id} label={participants.find(p=>p.id===id)?.name} placeholder="%" value={draft.split.percents?.[id] ?? ''} onChange={(e) => setDraft({ ...draft, split: { ...draft.split, percents: { ...(draft.split.percents || {}), [id]: e.target.value } } })} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {draft.split?.mode === "exact" && (
-                  <div>
-                    <div className="text-sm text-gray-600 mb-2">Monto exacto por persona (se ajusta si no suma igual al total).</div>
-                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
-                      {draft.involvedIds.map((id) => (
-                        <Input key={id} label={participants.find(p=>p.id===id)?.name} placeholder={`${currency} 0,00`} value={draft.split.exact?.[id] ?? ''} onChange={(e) => setDraft({ ...draft, split: { ...draft.split, exact: { ...(draft.split.exact || {}), [id]: e.target.value } } })} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="mt-4 flex gap-2">
-              <button className="px-4 py-2 rounded-xl bg-black text-white" onClick={addExpense}>Agregar gasto</button>
-              <button className="px-4 py-2 rounded-xl border" onClick={() => setDraft(emptyExpense())}>Limpiar</button>
-            </div>
-          </Section>
-        );
+      const totals={ paidBy:Object.fromEntries(state.participants.map(p=>[p.id,0])), owedBy:Object.fromEntries(state.participants.map(p=>[p.id,0])) };
+      for(const e of state.expenses){
+        const amt=parseAmount(e.amount); if(!amt||amt<=0) continue;
+        if(e.payerId) totals.paidBy[e.payerId]+=amt;
+        const involved=e.involvedIds||[];
+        if(e.split?.mode==='equal'){
+          const share=amt/involved.length; involved.forEach(id=>totals.owedBy[id]+=share);
+        }else if(e.split?.mode==='shares'){
+          const totalShares=involved.reduce((a,id)=>a+(parseAmount(e.split.shares?.[id])||0),0);
+          involved.forEach(id=>{ const s=parseAmount(e.split.shares?.[id])||0; totals.owedBy[id]+= totalShares>0? (amt*s)/totalShares : 0; });
+        }else if(e.split?.mode==='percent'){
+          const totalPct=involved.reduce((a,id)=>a+(parseAmount(e.split.percents?.[id])||0),0);
+          involved.forEach(id=>{ const p=parseAmount(e.split.percents?.[id])||0; totals.owedBy[id]+= totalPct>0? (amt*p)/totalPct : 0; });
+        }else if(e.split?.mode==='exact'){
+          involved.forEach(id=>totals.owedBy[id]+=parseAmount(e.split.exact?.[id])||0);
+        }
       }
-
-      function ExpensesTable({ expenses, participants, currency, removeExpense }) {
-        const nameById = (id) => participants.find((p) => p.id === id)?.name || "(?)";
-        return (
-          <Section title="Gastos cargados">
-            {expenses.length === 0 ? (
-              <div className="text-gray-500">Todavía no hay gastos. Cargá el primero arriba ☝️</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="py-2 pr-2">Fecha</th>
-                      <th className="py-2 pr-2">Descripción</th>
-                      <th className="py-2 pr-2">Pagó</th>
-                      <th className="py-2 pr-2">Incluye</th>
-                      <th className="py-2 pr-2">División</th>
-                      <th className="py-2 pr-2 text-right">Monto</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expenses.map((e) => (
-                      <tr key={e.id} className="border-b hover:bg-gray-50">
-                        <td className="py-2 pr-2 whitespace-nowrap">{e.date}</td>
-                        <td className="py-2 pr-2">{e.desc || <span className="text-gray-400">(sin nota)</span>}</td>
-                        <td className="py-2 pr-2">{nameById(e.payerId)}</td>
-                        <td className="py-2 pr-2">{e.involvedIds.map(nameById).join(", ")}</td>
-                        <td className="py-2 pr-2">
-                          {e.split?.mode === "equal" && "= iguales"}
-                          {e.split?.mode === "shares" && "∝ ponderaciones"}
-                          {e.split?.mode === "percent" && "% porcentajes"}
-                          {e.split?.mode === "exact" && "= exactos"}
-                        </td>
-                        <td className="py-2 pr-2 text-right font-medium">{currency} {formatAmount(e.amount)}</td>
-                        <td className="py-2 pl-2 text-right"><button className="text-red-500 hover:underline" onClick={() => removeExpense(e.id)}>eliminar</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Section>
-        );
-      }
-
-      function BalancesSection({ participants, balances, totals, currency }) {
-        return (
-          <Section title="Saldos por persona">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {participants.map((p) => {
-                const net = balances[p.id] || 0;
-                const paid = totals.paidBy?.[p.id] || 0;
-                const owed = totals.owedBy?.[p.id] || 0;
-                return (
-                  <div key={p.id} className="border rounded-xl p-4 bg-white">
-                    <div className="text-base font-semibold mb-1">{p.name}</div>
-                    <div className="text-sm text-gray-600">Pagó: <b>{currency} {formatAmount(paid)}</b></div>
-                    <div className="text-sm text-gray-600">Le corresponde: <b>{currency} {formatAmount(owed)}</b></div>
-                    <div className={`mt-2 text-lg font-bold ${net>=0?"text-green-700":"text-red-700"}`}>
-                      {net>=0?"A favor":"En contra"}: {currency} {formatAmount(Math.abs(net))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Section>
-        );
-      }
-
-      function SettlementsSection({ settlements, nameById, currency }) {
-        return (
-          <Section title="Transferencias sugeridas (para saldar)">
-            {settlements.length === 0 ? (
-              <div className="text-gray-500">No hay transferencias pendientes 🎉</div>
-            ) : (
-              <ul className="space-y-2">
-                {settlements.map((t, i) => (
-                  <li key={i} className="border rounded-xl p-3 bg-white flex items-center justify-between">
-                    <div><b>{nameById(t.from)}</b> → <b>{nameById(t.to)}</b></div>
-                    <div className="text-right font-semibold">{currency} {formatAmount(t.amount)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
-        );
-      }
+      return {balances:bal, totals};
     }
 
-    const root = ReactDOM.createRoot(document.getElementById("root"));
-    root.render(<App />);
+    function computeSettlements(bal){
+      const debtors=[], creditors=[]; Object.entries(bal).forEach(([id,net])=>{ if(Math.abs(net)<1e-8) return; if(net<0) debtors.push({id,amount:-net}); if(net>0) creditors.push({id,amount:net}); });
+      debtors.sort((a,b)=>b.amount-a.amount); creditors.sort((a,b)=>b.amount-a.amount);
+      const transfers=[]; let i=0,j=0; while(i<debtors.length && j<creditors.length){ const d=debtors[i], c=creditors[j]; const amt=Math.min(d.amount,c.amount); transfers.push({from:d.id,to:c.id,amount:amt}); d.amount-=amt; c.amount-=amt; if(d.amount<=1e-8) i++; if(c.amount<=1e-8) j++; }
+      return transfers;
+    }
+
+    function nameById(id){ const p=state.participants.find(p=>p.id===id); return p? p.name : '(?)'; }
+
+    // ---------- Render ----------
+    function ensureDraft(){
+      if(!state.draft){ state.draft = { id: uid(), desc:'', amount:0, date: new Date().toISOString().slice(0,10), payerId: (state.participants[0]?.id) || null, involvedIds: state.participants.map(p=>p.id), split: { mode:'equal' } }; }
+      // si falta payerId
+      state.draft.payerId = (state.draft.payerId ?? (state.participants[0]?.id)) || null;
+      // mantener involvedIds existentes
+      state.draft.involvedIds = state.draft.involvedIds?.filter(id=>state.participants.find(p=>p.id===id)) || [];
+      if(state.draft.involvedIds.length===0) state.draft.involvedIds = state.participants.map(p=>p.id);
+    }
+
+    function render(){
+      ensureDraft();
+      const {balances, totals} = computeBalancesAndTotals();
+      const settlements = computeSettlements(balances);
+
+      const app=document.getElementById('app');
+      app.innerHTML = `
+        <section class="panel">
+          <div class="row" style="justify-content:space-between;align-items:flex-end">
+            <div style="flex:1"></div>
+            <div class="row" style="gap:8px">
+              <div style="width:80px">
+                <label class="block"><div class="label">Moneda</div>
+                  <input id="inpCurrency" value="${escapeHtml(state.currency)}">
+                </label>
+              </div>
+              <div style="width:220px">
+                <label class="block"><div class="label">Nuevo participante</div>
+                  <input id="inpNewName" placeholder="Nombre">
+                </label>
+              </div>
+              <button id="btnAddPerson" class="btn primary">Agregar</button>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <div class="row" style="flex-wrap:wrap;gap:8px">
+            ${state.participants.map(p=>`<span class="pill">${escapeHtml(p.name)} <button data-del="${p.id}" class="btn" style="padding:4px 6px;color:${cssVar('--danger')};border-color:${cssVar('--border')}">quitar</button></span>`).join('')}
+            ${state.participants.length===0? '<span class="muted">Agregá participantes para empezar</span>' : ''}
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Nuevo gasto</h2>
+          <div class="grid grid-6">
+            <div class="col"><label class="block"><div class="label">Descripción</div><input id="gDesc" placeholder="Ej: Cena, Nafta, Hotel" value="${escapeHtml(state.draft.desc)}"></label></div>
+            <div class="col"><label class="block"><div class="label">Monto</div><input id="gAmount" value="${escapeHtml(state.draft.amount)}" placeholder="0,00"></label></div>
+            <div class="col"><label class="block"><div class="label">Fecha</div><input id="gDate" type="date" value="${escapeHtml(state.draft.date)}"></label></div>
+            <div class="col"><label class="block"><div class="label">Pagó</div>
+              <select id="gPayer"><option disabled ${state.draft.payerId? '' : 'selected'}>Seleccioná</option>
+                ${state.participants.map(p=>`<option value="${p.id}" ${p.id===state.draft.payerId?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+              </select>
+            </label></div>
+            <div class="col"><label class="block"><div class="label">Modo de división</div>
+              <select id="gMode">
+                ${['equal','shares','percent','exact'].map(m=>`<option value="${m}" ${state.draft.split.mode===m?'selected':''}>${({equal:'Partes iguales',shares:'Por ponderaciones',percent:'Por porcentaje',exact:'Montos exactos'})[m]}</option>`).join('')}
+              </select>
+            </label></div>
+          </div>
+          <div class="spacer"></div>
+          <div class="label">¿Quiénes participan de este gasto?</div>
+          <div class="row" style="flex-wrap:wrap;gap:8px">
+            ${state.participants.map(p=>{
+              const checked=state.draft.involvedIds.includes(p.id);
+              return `<label class="pill" style="${checked?'background:#000;color:#fff;border-color:#000':''}"><input type="checkbox" data-involved="${p.id}" ${checked?'checked':''} style="margin-right:6px">${escapeHtml(p.name)}</label>`;
+            }).join('')}
+          </div>
+          ${state.draft.split.mode!=='equal' ? extraSplitInputsHTML() : ''}
+          <div class="spacer"></div>
+          <div class="row">
+            <button id="btnAddExpense" class="btn primary">Agregar gasto</button>
+            <button id="btnClearExpense" class="btn">Limpiar</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Gastos cargados</h2>
+          ${state.expenses.length===0 ? `<div class="muted">Todavía no hay gastos. Cargá el primero arriba ☝️</div>` : `
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Fecha</th><th>Descripción</th><th>Pagó</th><th>Incluye</th><th>División</th><th class="right">Monto</th><th></th></tr></thead>
+              <tbody>
+                ${state.expenses.map(e=>`
+                  <tr>
+                    <td>${e.date}</td>
+                    <td>${e.desc? escapeHtml(e.desc) : '<span class="muted">(sin nota)</span>'}</td>
+                    <td>${escapeHtml(nameById(e.payerId))}</td>
+                    <td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>
+                    <td>${({equal:'= iguales',shares:'∝ ponderaciones',percent:'% porcentajes',exact:'= exactos'})[e.split?.mode||'equal']}</td>
+                    <td class="right"><b>${state.currency} ${formatAmount(e.amount)}</b></td>
+                    <td class="right"><button class="btn danger" data-del-exp="${e.id}">eliminar</button></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>`}
+        </section>
+
+        <section class="panel">
+          <h2>Saldos por persona</h2>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+            ${state.participants.map(p=>{
+              const net=balances[p.id]||0; const paid=totals.paidBy[p.id]||0; const owed=totals.owedBy[p.id]||0;
+              return `<div class="card">
+                <div style="font-weight:600">${escapeHtml(p.name)}</div>
+                <div class="muted">Pagó: <b>${state.currency} ${formatAmount(paid)}</b></div>
+                <div class="muted">Le corresponde: <b>${state.currency} ${formatAmount(owed)}</b></div>
+                <div class="${net>=0?'ok':'bad'}" style="margin-top:6px;font-weight:800">${net>=0?'A favor':'En contra'}: ${state.currency} ${formatAmount(Math.abs(net))}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Transferencias sugeridas (para saldar)</h2>
+          ${settlements.length===0? '<div class="muted">No hay transferencias pendientes 🎉</div>' : `
+            <div class="grid" style="grid-template-columns:1fr;gap:8px">
+              ${settlements.map(t=>`<div class="card row" style="justify-content:space-between"><div><b>${escapeHtml(nameById(t.from))}</b> → <b>${escapeHtml(nameById(t.to))}</b></div><div style="font-weight:700">${state.currency} ${formatAmount(t.amount)}</div></div>`).join('')}
+            </div>`}
+        </section>
+      `;
+
+      // Event listeners
+      document.getElementById('inpCurrency').addEventListener('input', e=>{ state.currency=e.target.value; saveLocal(); });
+      document.getElementById('btnAddPerson').addEventListener('click', ()=>{
+        const name=document.getElementById('inpNewName').value.trim(); if(!name) return;
+        state.participants.push({id:uid(), name}); document.getElementById('inpNewName').value=''; saveLocal(); render();
+      });
+      document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del');
+        state.participants = state.participants.filter(p=>p.id!==id);
+        // limpiar referencias en gastos
+        state.expenses = state.expenses.map(e=>{
+          const involvedIds = (e.involvedIds||[]).filter(pid=>pid!==id);
+          const split = sanitizeSplitForParticipants(e.split, involvedIds);
+          const payerId = e.payerId===id ? null : e.payerId;
+          return {...e, involvedIds, split, payerId};
+        });
+        saveLocal(); render();
+      }));
+
+      // Draft inputs
+      document.getElementById('gDesc').addEventListener('input', e=>{ state.draft.desc=e.target.value; });
+      document.getElementById('gAmount').addEventListener('input', e=>{ state.draft.amount=e.target.value; });
+      document.getElementById('gDate').addEventListener('input', e=>{ state.draft.date=e.target.value; });
+      document.getElementById('gPayer').addEventListener('change', e=>{ state.draft.payerId=e.target.value; });
+      document.getElementById('gMode').addEventListener('change', e=>{ state.draft.split={ mode:e.target.value }; render(); });
+      document.querySelectorAll('[data-involved]').forEach(ch=> ch.addEventListener('change', e=>{
+        const id=ch.getAttribute('data-involved'); const set=new Set(state.draft.involvedIds);
+        if(ch.checked) set.add(id); else set.delete(id);
+        state.draft.involvedIds=[...set]; state.draft.split = sanitizeSplitForParticipants(state.draft.split, state.draft.involvedIds);
+        render();
+      }));
+
+      // Extra split fields
+      document.querySelectorAll('[data-share]').forEach(inp=> inp.addEventListener('input', e=>{ state.draft.split.shares = {...(state.draft.split.shares||{}), [inp.dataset.share]: inp.value }; }));
+      document.querySelectorAll('[data-percent]').forEach(inp=> inp.addEventListener('input', e=>{ state.draft.split.percents = {...(state.draft.split.percents||{}), [inp.dataset.percent]: inp.value }; }));
+      document.querySelectorAll('[data-exact]').forEach(inp=> inp.addEventListener('input', e=>{ state.draft.split.exact = {...(state.draft.split.exact||{}), [inp.dataset.exact]: inp.value }; }));
+
+      document.getElementById('btnAddExpense').addEventListener('click', ()=>{
+        const d=state.draft; if(!d.payerId) return; const amt=parseAmount(d.amount); if(!amt||amt<=0) return;
+        const normalized={...d, amount: amt}; state.expenses = [normalized, ...state.expenses]; state.draft=null; saveLocal(); render();
+      });
+      document.getElementById('btnClearExpense').addEventListener('click', ()=>{ state.draft=null; render(); });
+
+      document.querySelectorAll('[data-del-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del-exp'); state.expenses = state.expenses.filter(x=>x.id!==id); saveLocal(); render(); }));
+    }
+
+    function sanitizeSplitForParticipants(split, involvedIds){
+      const set=new Set(involvedIds); if(!split) return {mode:'equal'}; const clone=JSON.parse(JSON.stringify(split));
+      if(clone.shares) Object.keys(clone.shares).forEach(k=>{ if(!set.has(k)) delete clone.shares[k]; });
+      if(clone.percents) Object.keys(clone.percents).forEach(k=>{ if(!set.has(k)) delete clone.percents[k]; });
+      if(clone.exact) Object.keys(clone.exact).forEach(k=>{ if(!set.has(k)) delete clone.exact[k]; });
+      return clone;
+    }
+
+    function extraSplitInputsHTML(){
+      const m=state.draft.split.mode; const ppl=state.draft.involvedIds;
+      if(m==='shares'){
+        return `<div class="spacer"></div><div class="card"><div class="label">Asigná ponderaciones (ej.: 1, 2, 3). Se divide proporcionalmente.</div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+            ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-share="${id}" value="${escapeHtml(state.draft.split.shares?.[id]??'')}"></label>`).join('')}
+          </div></div>`;
+      } else if(m==='percent'){
+        return `<div class="spacer"></div><div class="card"><div class="label">Porcentaje por persona (sugerido total: 100)</div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+            ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-percent="${id}" value="${escapeHtml(state.draft.split.percents?.[id]??'')}"></label>`).join('')}
+          </div></div>`;
+      } else if(m==='exact'){
+        return `<div class="spacer"></div><div class="card"><div class="label">Monto exacto por persona (se ajusta si no suma igual al total)</div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+            ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-exact="${id}" placeholder="${escapeHtml(state.currency)} 0,00" value="${escapeHtml(state.draft.split.exact?.[id]??'')}"></label>`).join('')}
+          </div></div>`;
+      }
+      return '';
+    }
+
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+    function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name) || '' }
+
+    // ---------- Acciones de barra superior ----------
+    document.getElementById('btnExport').addEventListener('click', ()=>{
+      const payload = { currency: state.currency, participants: state.participants, expenses: state.expenses };
+      const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='tripsplit.json'; a.click();
+    });
+    document.getElementById('fileImport').addEventListener('change', (e)=>{
+      const f=e.target.files?.[0]; if(!f) return; const reader=new FileReader(); reader.onload=()=>{
+        try{ const data=JSON.parse(reader.result);
+          if(data.participants && data.expenses){ state.currency=data.currency??'$'; state.participants=data.participants; state.expenses=data.expenses; state.draft=null; saveLocal(); render(); }
+          else alert('Archivo inválido');
+        }catch(err){ alert('No se pudo leer el archivo'); }
+      }; reader.readAsText(f);
+    });
+    document.getElementById('btnShare').addEventListener('click', ()=>{
+      const payload = { currency: state.currency, participants: state.participants, expenses: state.expenses };
+      const url = location.origin + location.pathname + encodeStateForURL(payload);
+      if(navigator.clipboard){ navigator.clipboard.writeText(url).then(()=> alert('Link copiado al portapapeles. Compartilo con tu grupo ✨')); }
+      else { prompt('Copiá este link:', url); }
+    });
+
+    // ---------- Inicializar ----------
+    (function init(){
+      const urlState = decodeStateFromURL();
+      if(urlState && urlState.participants){ state.currency=urlState.currency??'$'; state.participants=urlState.participants; state.expenses=urlState.expenses||[]; }
+      else { loadLocal(); }
+      render();
+    })();
   </script>
 </body>
 </html>
