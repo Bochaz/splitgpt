@@ -10,7 +10,18 @@
   <header>
     <div class="container row" style="justify-content:space-between">
       <div class="row"><h1>TripSplit</h1><span class="chip">Divisor de gastos</span></div>
-      <div class="row"><button id="btnShare" class="btn">Compartir link</button></div>
+      <div class="row">
+        <button id="btnShare" class="btn">Compartir link</button>
+      </div>
+    </div>
+    <div class="container tripbar">
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <select id="tripSelect" class="trip-select"></select>
+        <button id="btnAddTrip" class="btn">+ Agregar viaje</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="tripName" class="trip-title" placeholder="Nombre del viaje">
+      </div>
     </div>
     <div class="container" style="padding-top:0">
       <nav class="tabs">
