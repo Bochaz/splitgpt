@@ -39,10 +39,12 @@
     .tabs{display:flex;gap:8px;flex-wrap:wrap}
     .tab{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer}
     .tab.active{background:#000;color:#fff;border-color:#000}
-    details.summary-row{background:#fafafa;border-radius:10px}
-    details>summary{list-style:none;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:10px}
-    details[open]>summary{background:#f3f4f6}
     canvas{max-width:100%;height:auto}
+    /* Modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100}
+    .modal{max-width:640px;width:100%;background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.2);padding:16px}
+    .modal header{position:relative;background:transparent;border:0;padding:0;margin:0 0 8px 0}
+    .modal .close{position:absolute;top:0;right:0}
   </style>
 </head>
 <body>
@@ -111,7 +113,7 @@
         const perHead = computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue;
         if(e.payerId) raw[e.payerId]+=amt; Object.entries(perHead).forEach(([id,val])=> raw[id]-=val);
       }
-      // aplicar pagos: final = raw - incoming + outgoing
+      // aplicar pagos
       const incoming = {}; const outgoing = {}; state.participants.forEach(p=>{incoming[p.id]=0; outgoing[p.id]=0;});
       for(const p of state.payments){
         const amt=parseAmount(p.amount)||0; if(amt<=0) continue;
@@ -171,7 +173,7 @@
       if(state.activeTab==='nuevo') bindNuevo();
       if(state.activeTab==='gastos') bindGastos();
       if(state.activeTab==='pagos') bindPagos();
-      if(state.activeTab==='resumen') drawPie(); // dibujar gráfico
+      if(state.activeTab==='resumen') drawPie();
     }
 
     // ---- TABS ----
@@ -246,7 +248,7 @@
         ${state.expenses.length===0 ? `<div class="muted">Todavía no hay gastos.</div>` : `
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Pagó</th><th>Incluye</th><th>División</th><th class="right">Monto</th><th></th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Pagó</th><th>Incluye</th><th>División</th><th class="right">Monto</th><th class="right">Acciones</th></tr></thead>
               <tbody>
                 ${state.expenses.map(e=>`
                   <tr>
@@ -259,14 +261,8 @@
                     <td class="right"><b>${state.currency} ${formatAmount(e.amount)}</b></td>
                     <td class="right">
                       <button class="btn" data-edit-exp="${e.id}">Editar</button>
+                      <button class="btn" data-detail-exp="${e.id}">Detalle</button>
                       <button class="btn danger" data-del-exp="${e.id}">Eliminar</button>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td colspan="8">
-                      <details class="summary-row"><summary>Ver detalle por persona</summary>
-                        ${renderExpenseBreakdown(e)}
-                      </details>
                     </td>
                   </tr>
                 `).join('')}
@@ -274,6 +270,37 @@
             </table>
           </div>`}
       </section>`;
+    }
+
+    function showExpenseDetail(e){
+      const per = computePerHead(e);
+      const overlay = document.createElement('div');
+      overlay.className='modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal">
+          <header class="row" style="justify-content:space-between">
+            <h2>Detalle del gasto</h2>
+            <button class="btn close" data-close>✕</button>
+          </header>
+          <div class="muted" style="margin-bottom:8px">${e.date || ''} · ${escapeHtml(e.category||'Otros')}</div>
+          <div class="card" style="margin-bottom:8px">
+            <div><b>${escapeHtml(e.desc||'(sin nota)')}</b></div>
+            <div class="muted">Pagó: ${escapeHtml(nameById(e.payerId))} · Total: <b>${state.currency} ${formatAmount(e.amount)}</b></div>
+            <div class="muted">Participan: ${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</div>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
+            ${Object.keys(per).map(id=>`<div class="card"><div class="muted">${escapeHtml(nameById(id))}</div><div><b>${state.currency} ${formatAmount(per[id])}</b></div></div>`).join('')}
+          </div>
+          <div class="spacer"></div>
+          <div class="row" style="justify-content:flex-end">
+            <button class="btn" data-close>Cerrar</button>
+          </div>
+        </div>
+      `;
+      function close(){ document.body.removeChild(overlay); }
+      overlay.addEventListener('click', (ev)=>{ if(ev.target===overlay || ev.target.hasAttribute('data-close')) close(); });
+      document.addEventListener('keydown', escHandler); function escHandler(ev){ if(ev.key==='Escape'){ close(); document.removeEventListener('keydown', escHandler); } }
+      document.body.appendChild(overlay);
     }
 
     function renderPagos(calc){
@@ -360,7 +387,6 @@
     }
 
     function renderResumen(){
-      // Totales por categoría
       const totalsByCat = {}; let grand = 0, countByCat = {};
       for(const e of state.expenses){ const cat = e.category || 'Otros'; const amt = parseAmount(e.amount) || 0; if(amt<=0) continue; totalsByCat[cat] = (totalsByCat[cat]||0) + amt; grand += amt; countByCat[cat] = (countByCat[cat]||0) + 1; }
       const cats = Object.keys(totalsByCat).sort((a,b)=> totalsByCat[b]-totalsByCat[a]);
@@ -440,6 +466,7 @@
     function bindGastos(){
       document.querySelectorAll('[data-del-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-del-exp'); state.expenses = state.expenses.filter(x=>x.id!==id); saveLocal(); render(); }));
       document.querySelectorAll('[data-edit-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-edit-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return; ensureDraft(exp); state.editingId=id; state.activeTab='nuevo'; render(); }));
+      document.querySelectorAll('[data-detail-exp]').forEach(btn=> btn.addEventListener('click', ()=>{ const id=btn.getAttribute('data-detail-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return; showExpenseDetail(exp); }));
     }
 
     function bindPagos(){
@@ -525,11 +552,9 @@
       keys.forEach((k,i)=>{
         const frac = totals[k]/grand; const end = start + frac*2*Math.PI;
         cx.beginPath(); cx.moveTo(centerX, centerY); cx.arc(centerX, centerY, r, start, end); cx.closePath();
-        // color por HSL basado en índice (sin dependencias)
         const hue = Math.floor((i/keys.length)*330); cx.fillStyle = `hsl(${hue} 70% 55%)`; cx.fill();
         start = end;
       });
-      // centro blanco para estilo donut
       cx.beginPath(); cx.arc(centerX, centerY, r*0.55, 0, 2*Math.PI); cx.fillStyle='#fff'; cx.fill();
     }
   </script>
