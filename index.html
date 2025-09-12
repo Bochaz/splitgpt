@@ -40,18 +40,15 @@
     .tab{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer}
     .tab.active{background:#000;color:#fff;border-color:#000}
     canvas{max-width:100%;height:auto}
-    /* prefijo de moneda en inputs */
     .prefix-input{position:relative}
     .prefix-input .prefix{position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:#9ca3af}
     .prefix-input input{padding-left:28px}
     .prefix-input input::placeholder{color:#d1d5db}
-    /* Modal */
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100}
     .modal{max-width:640px;width:100%;background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.2);padding:16px}
     .modal header{position:relative;background:transparent;border:0;padding:0;margin:0 0 8px 0}
     .modal .close{position:absolute;top:0;right:0}
-    /* status */
-    #status{position:fixed;bottom:12px;right:12px;background:#fff;border:1px solid var(--border);border-radius:12px;padding:6px 10px;font-size:12px;color:var(--muted);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+    #status{position:fixed;bottom:12px;right:12px;background:#fff;border:1px solid var(--border);border-radius:12px;padding:6px 10px;font-size:12px;color:#6b7280;box-shadow:0 1px 4px rgba(0,0,0,.08)}
   </style>
 </head>
 <body>
@@ -81,16 +78,14 @@
   <div id="status" style="display:none"></div>
 
   <script>
-    // ===== JSONBin sync (sin exponer claves) =====
-    // Usamos un Bin Público (X-Bin-Private:false) que permite leer/actualizar por Bin ID.
-    // Paso previo: crear el bin (manual con tu cuenta) y hacerlo público. Guardate el ID.
-    const JSONBIN_BIN_ID = new URLSearchParams(location.search).get('bin') || null;
+    // ===== JSONBin hardcode =====
+    const JSONBIN_BIN_ID = "68c46f61ae596e708fecaebe";
     const JSONBIN_ROOT = 'https://api.jsonbin.io/v3/b';
     const JSONBIN_GET_URL = (id) => `${JSONBIN_ROOT}/${id}/latest`;
     const JSONBIN_PUT_URL = (id) => `${JSONBIN_ROOT}/${id}`;
     let lastRemoteTs = 0;
     let pollTimer = null;
-    const debounce=(fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);}}
+    const debounce=(fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);}};
     const showStatus = (msg) => { const el=document.getElementById('status'); el.textContent=msg; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{el.style.display='none'}, 1200); };
 
     // ===== App =====
@@ -196,7 +191,6 @@
       if(state.activeTab==='resumen') drawPie();
     }
 
-    // ---- TABS ----
     function renderViajeros(){
       return `
       <section class="panel">
@@ -541,27 +535,15 @@
 
     // --- share ---
     document.getElementById('btnShare').addEventListener('click', ()=>{
-      const url = JSONBIN_BIN_ID
-        ? (location.origin + location.pathname + '?bin=' + JSONBIN_BIN_ID)
-        : (location.origin + location.pathname + encodeStateForURL({ currency: state.currency, participants: state.participants, expenses: state.expenses, payments: state.payments }));
+      const url = location.origin + location.pathname; // sin params; usa BIN fijo
       if(navigator.clipboard){ navigator.clipboard.writeText(url).then(()=> showStatus('Link copiado ✨')); }
       else { prompt('Copiá este link:', url); }
     });
 
     // --- init ---
     (function init(){
-      const urlState = decodeStateFromURL();
-      if(JSONBIN_BIN_ID){
-        // empezar a poller
-        startPolling();
-        // primer fetch
-        fetchBin().then(data=>{ if(data) applyRemote(data); render(); }).catch(()=>{ /* si falla, seguimos local */ render(); });
-      } else if(urlState && urlState.participants){
-        state.currency=urlState.currency??'$'; state.participants=urlState.participants; state.expenses=(urlState.expenses||[]); state.payments=urlState.payments||[];
-        render();
-      } else {
-        loadLocal(); state.expenses = state.expenses.map(e=> ({...e, category: e.category || 'Otros'})); render();
-      }
+      startPolling();
+      fetchBin().then(data=>{ if(data) applyRemote(data); render(); }).catch(()=>{ render(); });
     })();
 
     function serializeState(){ return { currency: state.currency, participants: state.participants, expenses: state.expenses, payments: state.payments, __ts: Date.now() }; }
@@ -576,7 +558,6 @@
     }
 
     const saveRemoteDebounced = debounce(()=>{
-      if(!JSONBIN_BIN_ID) return;
       const payload = serializeState();
       lastRemoteTs = payload.__ts;
       fetch(JSONBIN_PUT_URL(JSONBIN_BIN_ID), {
@@ -595,7 +576,6 @@
         const r = await fetch(JSONBIN_GET_URL(JSONBIN_BIN_ID));
         if(!r.ok) throw new Error('GET failed');
         const j = await r.json();
-        // v3 devuelve {record: {...}, metadata:{...}}
         return j && j.record ? j.record : null;
       }catch(e){ console.warn('GET jsonbin', e); return null; }
     }
