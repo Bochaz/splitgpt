@@ -287,16 +287,6 @@ function ensureTripsSeed(){
   const seeded = KNOWN_BINS.map((t,i)=>({id:t.id, name: map[t.id] || t.name || `Viaje ${String(i+1).padStart(2,'0')}`}));
   saveTrips(seeded);
 }
-
-  // Pre-carga de otros viajes (proporcionados por el usuario)
-  const SEED_EXTRA = [
-    {id:'68c491b9ae596e708fecc3ca', name:'Viaje 02'},
-    {id:'68c491cd43b1c97be94105f7', name:'Viaje 03'}
-  ];
-  SEED_EXTRA.forEach(t=>{ if(!trips.find(x=>x.id===t.id)) trips.push(t); });
-
-  saveTrips(trips);
-}
 function setCurrentTrip(binId){
   if(!binId) return;
   CURRENT_BIN_ID = binId;
