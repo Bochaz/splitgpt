@@ -1,4 +1,4 @@
-// ===== JSONBin (current trip) =====
+// ===== JSONBin & Trip Registry =====
 let CURRENT_BIN_ID = window.TRIPSPLIT_BIN_ID || "";
 const KNOWN_BINS = [
   {id: CURRENT_BIN_ID, name: 'Viaje 01'},
@@ -247,7 +247,7 @@ function renderSaldos(calc, settlements){
 }
 
 function renderResumen(){
-  const totals={}, cats=[]; let grand=0;
+  const totals={}; let grand=0;
   for(const e of state.expenses){const cat=e.category||'Otros'; const amt=parseAmount(e.amount)||0; if(amt<=0) continue; totals[cat]=(totals[cat]||0)+amt; grand+=amt;}
   const keys=Object.keys(totals).sort((a,b)=>totals[b]-totals[a]);
   return `
@@ -269,18 +269,10 @@ function renderResumen(){
   </section>`;
 }
 
-// ===== Trips management (modal) =====
+// ===== Trips: local list & modal selection =====
 const LS_TRIPS_KEY = 'tripsplit_trips';
-function loadTrips(){
-  try{ const arr = JSON.parse(localStorage.getItem(LS_TRIPS_KEY)||'[]'); return Array.isArray(arr)? arr : []; }catch(e){ return []; }
-}
+function loadTrips(){ try{ const arr = JSON.parse(localStorage.getItem(LS_TRIPS_KEY)||'[]'); return Array.isArray(arr)? arr : []; }catch(e){ return []; } }
 function saveTrips(list){ localStorage.setItem(LS_TRIPS_KEY, JSON.stringify(list)); }
-function parseBinId(input){
-  if(!input) return '';
-  const s = String(input).trim();
-  const m = s.match(/\/b\/([a-z0-9]+)(?:\/|$)/i);
-  return m ? m[1] : s;
-}
 function ensureTripsSeed(){
   const existing = loadTrips();
   const map = Object.fromEntries(existing.map(t=>[t.id, t.name]));
