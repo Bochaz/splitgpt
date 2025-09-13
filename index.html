@@ -10,7 +10,15 @@
   <header>
     <div class="container row" style="justify-content:space-between">
       <div class="row"><h1 id="tripTitle" class="app-title" title="Cambiar nombre o viaje" tabindex="0">Viaje 01</h1></div>
-      <div class="row"><button id="btnShare" class="btn">Compartir link</button></div>
+      <div class="row">
+        <button id="btnShare" class="btn" aria-label="Compartir" title="Compartir">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M18 8l-5-5v3a9 9 0 0 0-9 9v3a6 6 0 0 1 6-6h3v3l5-5z"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
     </div>
     <div class="container" style="padding-top:0">
       <nav class="tabs">
