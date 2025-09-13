@@ -37,3 +37,9 @@ td.right{text-align:right} td.center{text-align:center}
 .app-title{font-size:26px;font-weight:900;letter-spacing:-.02em;cursor:pointer;outline:none}
 @media(min-width:780px){.app-title{font-size:30px}}
 .app-title:hover{text-decoration:underline}
+
+/* tab color fix (mobile) */
+.tab{ color: var(--text); -webkit-tap-highlight-color: transparent; }
+.tab:visited{ color: var(--text); }
+.tab:focus{ outline:2px solid #9ca3af; outline-offset:2px; }
+.tab.active{ background:#000; color:#fff; border-color:#000; }
