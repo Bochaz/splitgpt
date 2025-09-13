@@ -152,11 +152,11 @@ function renderGastos(){
     ${state.expenses.length===0 ? '<div class="muted">Todavía no hay gastos.</div>' : `
       <div style="overflow-x:auto">
         <table>
-          <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Pagó</th><th>Incluye</th><th class="center">División</th><th class="right">Monto</th><th class="right">Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Categoría</th><th>Pagó</th><th>Incluye</th><th class="center">División</th><th class="right">Monto</th><th class="right">Acciones</th></tr></thead>
           <tbody>
           ${state.expenses.map(e=>`
             <tr>
-              <td>${fmtDate(e.date)}</td><td>${e.desc? escapeHtml(e.desc) : '<span class="muted">(sin nota)</span>'}</td><td>${escapeHtml(e.category||'Otros')}</td>
+              <td>${fmtDate(e.date)}</td><td>${escapeHtml(e.category||'Otros')}</td>
               <td>${escapeHtml(nameById(e.payerId))}</td><td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>
               <td class="center">${({equal:'=',shares:'∝',percent:'%',exact:'≡'})[e.split?.mode||'equal']}</td>
               <td class="right"><b>$ ${formatAmount(e.amount)}</b></td>
@@ -351,37 +351,121 @@ function bindTripTitle(){
 }
 
 // ===== Bindings =====
-function bindViajeros(){document.getElementById('btnAddPerson').addEventListener('click',()=>{const name=document.getElementById('inpNewName').value.trim(); if(!name) return; state.participants.push({id:uid(),name}); document.getElementById('inpNewName').value=''; saveMaybe(); render();});
-  document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.getAttribute('data-del'); state.participants=state.participants.filter(p=>p.id!==id);
-    state.expenses=state.expenses.map(e=>{const inv=(e.involvedIds||[]).filter(pid=>pid!==id); const split=sanitizeSplitForParticipants(e.split,inv); const payer=e.payerId===id?null:e.payerId; return {...e,involvedIds:inv,split:split,payerId:payer};});
-    state.payments=state.payments.filter(p=>p.fromId!==id && p.toId!==id); saveMaybe(); render();}));}
+function bindViajeros(){
+  document.getElementById('btnAddPerson').addEventListener('click',()=>{
+    const name=document.getElementById('inpNewName').value.trim();
+    if(!name) return;
+    state.participants.push({id:uid(),name});
+    document.getElementById('inpNewName').value='';
+    saveMaybe(); render();
+  });
+  document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id=btn.getAttribute('data-del');
+    if(!confirm('¿Eliminar viajero? Los gastos en los que participó quedarán sin identificación del viajero eliminado y se ajustarán los participantes.')) return;
+    state.participants=state.participants.filter(p=>p.id!==id);
+    state.expenses=state.expenses.map(e=>{
+      const inv=(e.involvedIds||[]).filter(pid=>pid!==id);
+      const split=sanitizeSplitForParticipants(e.split,inv);
+      const payer=e.payerId===id?null:e.payerId;
+      return {...e,involvedIds:inv,split:split,payerId:payer};
+    });
+    state.payments=state.payments.filter(p=>p.fromId!==id && p.toId!==id);
+    saveMaybe(); render();
+  }));
+}
 
-function sanitizeSplitForParticipants(split,involvedIds){const set=new Set(involvedIds); if(!split) return {mode:'equal'}; const c=JSON.parse(JSON.stringify(split)); if(c.shares) Object.keys(c.shares).forEach(k=>{if(!set.has(k)) delete c.shares[k];}); if(c.percents) Object.keys(c.percents).forEach(k=>{if(!set.has(k)) delete c.percents[k];}); if(c.exact) Object.keys(c.exact).forEach(k=>{if(!set.has(k)) delete c.exact[k];}); return c;}
+function sanitizeSplitForParticipants(split,involvedIds){
+  const set=new Set(involvedIds);
+  if(!split) return {mode:'equal'};
+  const c=JSON.parse(JSON.stringify(split));
+  if(c.shares) Object.keys(c.shares).forEach(k=>{if(!set.has(k)) delete c.shares[k];});
+  if(c.percents) Object.keys(c.percents).forEach(k=>{if(!set.has(k)) delete c.percents[k];});
+  if(c.exact) Object.keys(c.exact).forEach(k=>{if(!set.has(k)) delete c.exact[k];});
+  return c;
+}
 
-function bindNuevo(){document.getElementById('gDesc').addEventListener('input',e=>state.draft.desc=e.target.value);
+function bindNuevo(){
+  document.getElementById('gDesc').addEventListener('input',e=>state.draft.desc=e.target.value);
   document.getElementById('gAmount').addEventListener('input',e=>state.draft.amount=e.target.value);
   document.getElementById('gDate').addEventListener('input',e=>state.draft.date=e.target.value);
   document.getElementById('gPayer').addEventListener('change',e=>state.draft.payerId=e.target.value);
   document.getElementById('gMode').addEventListener('change',e=>{state.draft.split={mode:e.target.value}; render();});
   document.getElementById('gCategory').addEventListener('change',e=>state.draft.category=e.target.value);
-  document.querySelectorAll('[data-tgl]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.getAttribute('data-tgl'); const set=new Set(state.draft.involvedIds); if(set.has(id)) set.delete(id); else set.add(id); state.draft.involvedIds=[...set]; state.draft.split=sanitizeSplitForParticipants(state.draft.split,state.draft.involvedIds); render();}));
-  document.querySelectorAll('[data-share]').forEach(inp=>inp.addEventListener('input',e=>{state.draft.split.shares={...(state.draft.split.shares||{}),[inp.dataset.share]:inp.value};}));
-  document.querySelectorAll('[data-percent]').forEach(inp=>inp.addEventListener('input',e=>{state.draft.split.percents={...(state.draft.split.percents||{}),[inp.dataset.percent]:inp.value};}));
-  document.querySelectorAll('[data-exact]').forEach(inp=>inp.addEventListener('input',e=>{state.draft.split.exact={...(state.draft.split.exact||{}),[inp.dataset.exact]:inp.value};}));
+  document.querySelectorAll('[data-tgl]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id=btn.getAttribute('data-tgl'); const set=new Set(state.draft.involvedIds);
+    if(set.has(id)) set.delete(id); else set.add(id);
+    state.draft.involvedIds=[...set];
+    state.draft.split=sanitizeSplitForParticipants(state.draft.split,state.draft.involvedIds);
+    render();
+  }));
+  document.querySelectorAll('[data-share]').forEach(inp=>inp.addEventListener('input',e=>{
+    state.draft.split.shares={...(state.draft.split.shares||{}),[inp.dataset.share]:inp.value};
+  }));
+  document.querySelectorAll('[data-percent]').forEach(inp=>inp.addEventListener('input',e=>{
+    state.draft.split.percents={...(state.draft.split.percents||{}),[inp.dataset.percent]:inp.value};
+  }));
+  document.querySelectorAll('[data-exact]').forEach(inp=>inp.addEventListener('input',e=>{
+    state.draft.split.exact={...(state.draft.split.exact||{}),[inp.dataset.exact]:inp.value};
+  }));
   const isEditing=!!state.editingId;
-  if(isEditing){document.getElementById('btnSaveEdit').addEventListener('click',()=>{const d=state.draft; const amt=parseAmount(d.amount); if(!d.category){alert('Seleccioná una categoría.'); return;} if(!d.payerId){alert('Seleccioná quién pagó.'); return;} if(!amt||amt<=0){alert('Ingresá un monto válido.'); return;} state.expenses=state.expenses.map(x=>x.id===state.editingId?{...d,amount:amt}:x); state.draft=null; state.editingId=null; saveMaybe(); state.activeTab='gastos'; render();});
-    document.getElementById('btnCancelEdit').addEventListener('click',()=>{state.draft=null; state.editingId=null; render();});}
-  else{document.getElementById('btnAddExpense').addEventListener('click',()=>{const d=state.draft; const amt=parseAmount(d.amount); if(!d.category){alert('Seleccioná una categoría.'); return;} if(!d.payerId){alert('Seleccioná quién pagó.'); return;} if(!amt||amt<=0){alert('Ingresá un monto válido.'); return;} const normalized={...d,amount:amt}; state.expenses=[normalized,...state.expenses]; state.draft=null; saveMaybe(); state.activeTab='gastos'; render();});}
+  if(isEditing){
+    document.getElementById('btnSaveEdit').addEventListener('click',()=>{
+      const d=state.draft; const amt=parseAmount(d.amount);
+      if(!d.category){alert('Seleccioná una categoría.'); return;}
+      if(!d.payerId){alert('Seleccioná quién pagó.'); return;}
+      if(!amt||amt<=0){alert('Ingresá un monto válido.'); return;}
+      state.expenses=state.expenses.map(x=>x.id===state.editingId?{...d,amount:amt}:x);
+      state.draft=null; state.editingId=null; saveMaybe(); state.activeTab='gastos'; render();
+    });
+    document.getElementById('btnCancelEdit').addEventListener('click',()=>{state.draft=null; state.editingId=null; render();});
+  } else {
+    document.getElementById('btnAddExpense').addEventListener('click',()=>{
+      const d=state.draft; const amt=parseAmount(d.amount);
+      if(!d.category){alert('Seleccioná una categoría.'); return;}
+      if(!d.payerId){alert('Seleccioná quién pagó.'); return;}
+      if(!amt||amt<=0){alert('Ingresá un monto válido.'); return;}
+      const normalized={...d,amount:amt};
+      state.expenses=[normalized,...state.expenses];
+      state.draft=null; saveMaybe(); state.activeTab='gastos'; render();
+    });
+  }
   document.getElementById('btnClearExpense').addEventListener('click',()=>{state.draft=null; render();});
 }
 
-function bindGastos(){document.querySelectorAll('[data-del-exp]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.getAttribute('data-del-exp'); state.expenses=state.expenses.filter(x=>x.id!==id); saveMaybe(); render();}));
-  document.querySelectorAll('[data-edit-exp]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.getAttribute('data-edit-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return; ensureDraft(exp); state.editingId=id; state.activeTab='nuevo'; render();}));
-  document.querySelectorAll('[data-detail-exp]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.getAttribute('data-detail-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return; showExpenseDetail(exp); }));
+function bindGastos(){
+  document.querySelectorAll('[data-del-exp]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id=btn.getAttribute('data-del-exp');
+    if(!confirm('¿Eliminar este gasto? Esta acción no se puede deshacer.')) return;
+    state.expenses=state.expenses.filter(x=>x.id!==id);
+    saveMaybe(); render();
+  }));
+  document.querySelectorAll('[data-edit-exp]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id=btn.getAttribute('data-edit-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return;
+    ensureDraft(exp); state.editingId=id; state.activeTab='nuevo'; render();
+  }));
+  document.querySelectorAll('[data-detail-exp]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id=btn.getAttribute('data-detail-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return;
+    showExpenseDetail(exp);
+  }));
 }
 
-function bindPagos(){document.getElementById('btnAddPayment').addEventListener('click',()=>{const date=document.getElementById('pDate').value; const fromId=document.getElementById('pFrom').value; const toId=document.getElementById('pTo').value; const amount=parseAmount(document.getElementById('pAmount').value); const note=document.getElementById('pNote').value; if(!fromId||!toId||fromId===toId){alert('Elegí remitente y destinatario distintos.');return;} if(!amount||amount<=0){alert('Ingresá un monto válido.');return;} const pay={id:uid(),date,fromId,toId,amount,note}; state.payments=[pay,...state.payments]; saveMaybe(); render();});
-  document.querySelectorAll('[data-del-pay]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.getAttribute('data-del-pay'); state.payments=state.payments.filter(x=>x.id!==id); saveMaybe(); render();}));
+function bindPagos(){
+  document.getElementById('btnAddPayment').addEventListener('click',()=>{
+    const date=document.getElementById('pDate').value;
+    const fromId=document.getElementById('pFrom').value;
+    const toId=document.getElementById('pTo').value;
+    const amount=parseAmount(document.getElementById('pAmount').value);
+    const note=document.getElementById('pNote').value;
+    if(!fromId||!toId||fromId===toId){alert('Elegí remitente y destinatario distintos.');return;}
+    if(!amount||amount<=0){alert('Ingresá un monto válido.');return;}
+    const pay={id:uid(),date,fromId,toId,amount,note};
+    state.payments=[pay,...state.payments]; saveMaybe(); render();
+  });
+  document.querySelectorAll('[data-del-pay]').forEach(btn=>btn.addEventListener('click',()=>{
+    const id=btn.getAttribute('data-del-pay');
+    // (opcional) agregar confirm si querés también aquí.
+    state.payments=state.payments.filter(x=>x.id!==id); saveMaybe(); render();
+  }));
 }
 
 // ===== Sync =====
@@ -393,8 +477,21 @@ async function fetchBin(){try{const r=await fetch(JSONBIN_GET_URL(CURRENT_BIN_ID
 function startPolling(){clearInterval(pollTimer); pollTimer=setInterval(async()=>{const remote=await fetchBin(); if(remote && remote.__ts && remote.__ts!==lastRemoteTs){applyRemote(remote); render(); showStatus('Sincronizado');}},3000);}
 
 // ===== Init & Share =====
-document.getElementById('btnShare').addEventListener('click',()=>{const url=location.origin+location.pathname; if(navigator.clipboard) navigator.clipboard.writeText(url).then(()=>showStatus('Link copiado ✨')); else prompt('Copiá este link:',url);});
+document.getElementById('btnShare').addEventListener('click',()=>{
+  const url=location.origin+location.pathname;
+  if(navigator.clipboard) navigator.clipboard.writeText(url).then(()=>showStatus('Link copiado ✨'));
+  else prompt('Copiá este link:',url);
+});
 (async function init(){ ensureTripsSeed(); setCurrentTrip(CURRENT_BIN_ID || (loadTrips()[0]?.id)||''); const data=await fetchBin(); if(data) applyRemote(data); render(); })();
 
 // ===== Pie =====
-function drawPie(){const ctx=document.getElementById('pie'); if(!ctx) return; const totals={}; let grand=0; for(const e of state.expenses){const cat=e.category||'Otros'; const amt=parseAmount(e.amount)||0; if(amt<=0) continue; totals[cat]=(totals[cat]||0)+amt; grand+=amt;} const keys=Object.keys(totals); if(keys.length===0||grand===0) return; const cx=ctx.getContext('2d'); const cxm=ctx.width/2, cym=ctx.height/2, r=Math.min(cxm,cym)-8; cx.clearRect(0,0,ctx.width,ctx.height); let start=0; keys.forEach((k,i)=>{const frac=totals[k]/grand; const end=start+frac*2*Math.PI; cx.beginPath(); cx.moveTo(cxm,cym); cx.arc(cxm,cym,r,start,end); cx.closePath(); const hue=Math.floor((i/keys.length)*330); cx.fillStyle=`hsl(${hue} 70% 55%)`; cx.fill(); start=end;}); cx.beginPath(); cx.arc(cxm,cym,r*0.55,0,2*Math.PI); cx.fillStyle='#fff'; cx.fill();}
+function drawPie(){
+  const ctx=document.getElementById('pie'); if(!ctx) return;
+  const totals={}; let grand=0;
+  for(const e of state.expenses){const cat=e.category||'Otros'; const amt=parseAmount(e.amount)||0; if(amt<=0) continue; totals[cat]=(totals[cat]||0)+amt; grand+=amt;}
+  const keys=Object.keys(totals); if(keys.length===0||grand===0) return;
+  const cx=ctx.getContext('2d'); const cxm=ctx.width/2, cym=ctx.height/2, r=Math.min(cxm,cym)-8;
+  cx.clearRect(0,0,ctx.width,ctx.height); let start=0;
+  keys.forEach((k,i)=>{const frac=totals[k]/grand; const end=start+frac*2*Math.PI; cx.beginPath(); cx.moveTo(cxm,cym); cx.arc(cxm,cym,r,start,end); cx.closePath(); const hue=Math.floor((i/keys.length)*330); cx.fillStyle=`hsl(${hue} 70% 55%)`; cx.fill(); start=end;});
+  cx.beginPath(); cx.arc(cxm,cym,r*0.55,0,2*Math.PI); cx.fillStyle='#fff'; cx.fill();
+}
