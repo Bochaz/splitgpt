@@ -22,8 +22,7 @@ const state = {
   payments: [],
   draft:null, editingId:null,
   activeTab:'viajeros',
-
-  // NUEVO: “quién soy” y filtro por persona (no se sincronizan al BIN)
+  // “quién soy” y filtro local (no se sincronizan al BIN)
   currentViewerId: loadViewerPref(),
   viewerFilter: loadViewerFilterPref()
 };
@@ -65,8 +64,8 @@ function computePerHead(e){
   return per;
 }
 
+// + => el viewer "prestó"/le deben; - => el viewer "debe"
 function viewerDeltaForExpense(e, viewerId){
-  // + => el viewer "prestó" (pagó de más); - => el viewer "debe" (pagó de menos)
   if(!viewerId) return 0;
   const per = computePerHead(e);
   const owed = per[viewerId] || 0;
@@ -109,16 +108,13 @@ function render(){
   const calc=computeBalancesAndTotals();
   const settlements=computeSettlements(calc.net);
 
-  // tabs
   document.querySelectorAll('.tab').forEach(t=>{
     t.classList.toggle('active', t.dataset.tab===state.activeTab);
     t.onclick=()=>{state.activeTab=t.dataset.tab; render();};
   });
 
-  // header buttons (viewer/filter)
   bindTripTitle(); bindHeaderButtons();
 
-  // view
   let html='';
   if(state.activeTab==='viajeros') html+=renderViajeros();
   if(state.activeTab==='nuevo')    html+=renderNuevo();
@@ -219,7 +215,6 @@ function renderNuevo(){
 }
 
 function renderGastos(){
-  // FILTRO por “quién soy”
   const viewer = state.currentViewerId;
   const applyFilter = !!state.viewerFilter && !!viewer;
 
@@ -233,16 +228,32 @@ function renderGastos(){
     ${list.length===0 ? '<div class="muted">No hay gastos.</div>' : `
       <div style="overflow-x:auto">
         <table>
-          <thead><tr><th>Fecha</th><th>Categoría</th><th>Pagó</th><th>Incluye</th><th class="right">Monto</th><th class="right">Acciones</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Categoría</th><th>Pagó</th><th>Incluye</th>
+              <th class="right">${applyFilter ? 'Monto (yo)' : 'Monto'}</th>
+              <th class="right">Acciones</th>
+            </tr>
+          </thead>
           <tbody>
           ${list.map(e=>{
-            const delta = applyFilter ? viewerDeltaForExpense(e, viewer) : 0;
-            const cls = applyFilter ? (delta>0?'viewer-pos': (delta<0?'viewer-neg':'')) : '';
+            const total = parseAmount(e.amount)||0;
+            let amountCell = `<b>$ ${formatAmount(total)}</b>`;
+            let rowCls = '';
+
+            if(applyFilter){
+              const delta = viewerDeltaForExpense(e, viewer); // + presté; - debo
+              const cls = delta >= 0 ? 'pos' : 'neg';
+              amountCell = `<span class="amount ${cls}">${delta>=0?'+':''}$ ${formatAmount(Math.abs(delta))}</span>`;
+              rowCls = delta>0 ? 'viewer-pos' : (delta<0 ? 'viewer-neg' : '');
+            }
+
             return `
-            <tr class="${cls}">
+            <tr class="${rowCls}">
               <td>${fmtDate(e.date)}</td><td>${escapeHtml(e.category||'Otros')}</td>
-              <td>${escapeHtml(nameById(e.payerId))}</td><td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>
-              <td class="right"><b>$ ${formatAmount(e.amount)}</b></td>
+              <td>${escapeHtml(nameById(e.payerId))}</td>
+              <td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>
+              <td class="right">${amountCell}</td>
               <td class="right">
                 <button class="btn" data-edit-exp="${e.id}">Editar</button>
                 <button class="btn" data-detail-exp="${e.id}">Detalle</button>
@@ -337,20 +348,29 @@ function showExpenseDetail(e){
 }
 
 function renderSaldos(calc, settlements){
-  // Reordenar: si hay viewer seleccionado, va primero
   const viewer = state.currentViewerId;
-  const ordered = [...state.participants].sort((a,b)=>{
-    if(!viewer) return 0;
-    if(a.id===viewer && b.id!==viewer) return -1;
-    if(b.id===viewer && a.id!==viewer) return 1;
-    return 0;
-  });
+  const applyFilter = !!state.viewerFilter && !!viewer;
+
+  // Participantes a mostrar (si filtro: solo yo)
+  const list = applyFilter
+    ? state.participants.filter(p => p.id===viewer)
+    : [...state.participants].sort((a,b)=>{
+        if(!viewer) return 0;
+        if(a.id===viewer && b.id!==viewer) return -1;
+        if(b.id===viewer && a.id!==viewer) return 1;
+        return 0;
+      });
+
+  // Transferencias a mostrar (si filtro: solo donde yo participo)
+  const transfers = applyFilter
+    ? settlements.filter(t => t.from===viewer || t.to===viewer)
+    : settlements;
 
   return `
   <section class="panel">
-    <h2>Saldos por persona ${viewer? `<span class="muted">· Prioridad: ${escapeHtml(nameById(viewer))}</span>`:''}</h2>
+    <h2>Saldos por persona ${viewer && applyFilter ? `<span class="muted">· Solo ${escapeHtml(nameById(viewer))}</span>` : (viewer ? `<span class="muted">· Prioridad: ${escapeHtml(nameById(viewer))}</span>` : '')}</h2>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
-      ${ordered.map(p=>{
+      ${list.map(p=>{
         const raw=calc.raw[p.id]||0, net=calc.net[p.id]||0, paid=calc.totals.paidBy[p.id]||0, owed=calc.totals.owedBy[p.id]||0;
         return `<div class="card">
           <div style="font-weight:600">${escapeHtml(p.name)}${viewer && p.id===viewer ? ' <span class="muted">(yo)</span>' : ''}</div>
@@ -363,13 +383,13 @@ function renderSaldos(calc, settlements){
     </div>
   </section>
   <section class="panel">
-    <h2>Transferencias sugeridas (para saldar)</h2>
-    ${settlements.length===0? '<div class="muted">No hay transferencias pendientes 🎉</div>' : `
+    <h2>Transferencias sugeridas</h2>
+    ${transfers.length===0? '<div class="muted">No hay transferencias pendientes.</div>' : `
       <div class="grid" style="grid-template-columns:1fr;gap:8px">
-        ${settlements.map(t=>`<div class="card row" style="justify-content:space-between"><div><b>${escapeHtml(nameById(t.from))}</b> → <b>${escapeHtml(nameById(t.to))}</b></div><div style="font-weight:700">$ ${formatAmount(t.amount)}</div></div>`).join('')}
+        ${transfers.map(t=>`<div class="card row" style="justify-content:space-between"><div><b>${escapeHtml(nameById(t.from))}</b> → <b>${escapeHtml(nameById(t.to))}</b></div><div style="font-weight:700">$ ${formatAmount(t.amount)}</div></div>`).join('')}
       </div>`}
     <div class="spacer"></div>
-    <div class="muted">Tip: registrá pagos reales en la pestaña <b>Pagos</b> para ir cerrando saldos.</div>
+    <div class="muted">Tip: registrá pagos reales en la pestaña <b>Pagos</b>.</div>
   </section>`;
 }
 
@@ -396,7 +416,7 @@ function renderResumen(){
   </section>`;
 }
 
-// ===== Trips: local list & modal selection =====
+// ===== Trips (local list & modal) =====
 const LS_TRIPS_KEY = 'tripsplit_trips';
 function loadTrips(){ try{ const arr = JSON.parse(localStorage.getItem(LS_TRIPS_KEY)||'[]'); return Array.isArray(arr)? arr : []; }catch(e){ return []; } }
 function saveTrips(list){ localStorage.setItem(LS_TRIPS_KEY, JSON.stringify(list)); }
@@ -486,7 +506,6 @@ function bindHeaderButtons(){
   const bFilter = document.getElementById('btnFilter');
 
   if(bViewer){
-    // si ya hay viewer, mostrar su nombre en el botón
     if(state.currentViewerId){
       const nm = nameById(state.currentViewerId) || 'Yo';
       bViewer.textContent = nm;
@@ -538,7 +557,6 @@ function openViewerModal(){
       saveViewerPref(state.currentViewerId);
       const bViewer = document.getElementById('btnViewer');
       if(bViewer) bViewer.textContent = nameById(state.currentViewerId) || 'Yo';
-      // mantener filtro como está; solo re-render
       render();
     }
     close();
