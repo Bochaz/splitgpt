@@ -43,3 +43,16 @@ td.right{text-align:right} td.center{text-align:center}
 .tab:visited{ color: var(--text); }
 .tab:focus{ outline:2px solid #9ca3af; outline-offset:2px; }
 .tab.active{ background:#000; color:#fff; border-color:#000; }
+
+/* tab color fix (mobile) */
+.tab{ color: var(--text); -webkit-tap-highlight-color: transparent; }
+.tab:visited{ color: var(--text) }
+.tab:focus{ outline:2px solid #9ca3af; outline-offset:2px }
+.tab.active{ background:#000; color:#fff; border-color:#000 }
+
+/* filas resaltadas cuando hay “mi filtro” activo */
+tbody tr.viewer-pos { box-shadow: inset 0 0 0 2px #16a34a; } /* verde */
+tbody tr.viewer-neg { box-shadow: inset 0 0 0 2px #dc2626; } /* rojo */
+
+/* estado activo del botón de filtro */
+.btn.is-active { background:#111; color:#fff; border-color:#111 }
