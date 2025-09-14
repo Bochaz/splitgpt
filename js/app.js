@@ -14,10 +14,18 @@ const showStatus = (msg) => {const el=document.getElementById('status'); el.text
 
 // ===== App state =====
 const CATEGORIES = ['Comida','Transporte','Alojamiento','Entretenimiento','Compras','Combustible','Tours','Otros'];
-const state = { tripName: 'Viaje 01',
+const state = {
+  tripName: 'Viaje 01',
   currency: '$',
   participants: [{id:uid(),name:'Ana'},{id:uid(),name:'Juan'}],
-  expenses: [], payments: [], draft:null, editingId:null, activeTab:'viajeros'
+  expenses: [],
+  payments: [],
+  draft:null, editingId:null,
+  activeTab:'viajeros',
+
+  // NUEVO: “quién soy” y filtro por persona (no se sincronizan al BIN)
+  currentViewerId: loadViewerPref(),
+  viewerFilter: loadViewerFilterPref()
 };
 
 // ===== Utils =====
@@ -27,40 +35,105 @@ function parseAmount(s){ if(typeof s==='number') return s; if(!s) return 0; cons
 function nameById(id){ const p=state.participants.find(p=>p.id===id); return p? p.name : '(?)'; }
 function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
 function fmtDate(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); return `${da.padStart(2,'0')}-${m.padStart(2,'0')}-${String(y).slice(2)}`; }catch(e){ return d||''; } }
+function saveLocal(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+function loadLocal(k,def){ try{ const x=JSON.parse(localStorage.getItem(k)||'null'); return (x==null?def:x);}catch(_){return def;} }
+function loadViewerPref(){ return loadLocal('tripsplit_viewer', null); }
+function saveViewerPref(id){ saveLocal('tripsplit_viewer', id); }
+function loadViewerFilterPref(){ return !!loadLocal('tripsplit_viewer_filter', false); }
+function saveViewerFilterPref(v){ saveLocal('tripsplit_viewer_filter', !!v); }
 
 // ===== Calc =====
-function computePerHead(e){const amt=parseAmount(e.amount); if(!amt||amt<=0) return {}; const involved=(e.involvedIds||[]).filter(id=>state.participants.find(p=>p.id===id)); const per={}; if(involved.length===0) return per;
-  if(e.split?.mode==='equal'){const share=amt/involved.length; involved.forEach(id=>per[id]=share);}
-  else if(e.split?.mode==='shares'){const total=involved.reduce((a,id)=>a+(parseAmount(e.split.shares?.[id])||0),0); involved.forEach(id=>{const s=parseAmount(e.split.shares?.[id])||0; per[id]= total>0? (amt*s)/total : 0;});}
-  else if(e.split?.mode==='percent'){const total=involved.reduce((a,id)=>a+(parseAmount(e.split.percents?.[id])||0),0); involved.forEach(id=>{const p=parseAmount(e.split.percents?.[id])||0; per[id]= total>0? (amt*p)/total : 0;});}
-  else if(e.split?.mode==='exact'){involved.forEach(id=>per[id]=parseAmount(e.split.exact?.[id])||0); const sum=Object.values(per).reduce((a,b)=>a+b,0); if(sum>0 && Math.abs(sum-amt)>0.01){const f=amt/sum; for(const k in per) per[k]*=f;}}
-  else{const share=amt/involved.length; involved.forEach(id=>per[id]=share);}
+function computePerHead(e){
+  const amt=parseAmount(e.amount);
+  if(!amt||amt<=0) return {};
+  const involved=(e.involvedIds||[]).filter(id=>state.participants.find(p=>p.id===id));
+  const per={}; if(involved.length===0) return per;
+  if(e.split?.mode==='equal'){
+    const share=amt/involved.length; involved.forEach(id=>per[id]=share);
+  } else if(e.split?.mode==='shares'){
+    const total=involved.reduce((a,id)=>a+(parseAmount(e.split.shares?.[id])||0),0);
+    involved.forEach(id=>{const s=parseAmount(e.split.shares?.[id])||0; per[id]= total>0? (amt*s)/total : 0;});
+  } else if(e.split?.mode==='percent'){
+    const total=involved.reduce((a,id)=>a+(parseAmount(e.split.percents?.[id])||0),0);
+    involved.forEach(id=>{const p=parseAmount(e.split.percents?.[id])||0; per[id]= total>0? (amt*p)/total : 0;});
+  } else if(e.split?.mode==='exact'){
+    involved.forEach(id=>per[id]=parseAmount(e.split.exact?.[id])||0);
+    const sum=Object.values(per).reduce((a,b)=>a+b,0); if(sum>0 && Math.abs(sum-amt)>0.01){const f=amt/sum; for(const k in per) per[k]*=f;}
+  } else {
+    const share=amt/involved.length; involved.forEach(id=>per[id]=share);
+  }
   return per;
 }
-function computeBalancesAndTotals(){const raw={}; state.participants.forEach(p=>raw[p.id]=0);
-  for(const e of state.expenses){const per=computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue; if(e.payerId) raw[e.payerId]+=amt; Object.entries(per).forEach(([id,val])=> raw[id]-=val);}
+
+function viewerDeltaForExpense(e, viewerId){
+  // + => el viewer "prestó" (pagó de más); - => el viewer "debe" (pagó de menos)
+  if(!viewerId) return 0;
+  const per = computePerHead(e);
+  const owed = per[viewerId] || 0;
+  const paid = (e.payerId===viewerId) ? (parseAmount(e.amount)||0) : 0;
+  return paid - owed;
+}
+
+function computeBalancesAndTotals(){
+  const raw={}; state.participants.forEach(p=>raw[p.id]=0);
+  for(const e of state.expenses){
+    const per=computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue;
+    if(e.payerId) raw[e.payerId]+=amt;
+    Object.entries(per).forEach(([id,val])=> raw[id]-=val);
+  }
   const incoming={}, outgoing={}; state.participants.forEach(p=>{incoming[p.id]=0; outgoing[p.id]=0;});
   for(const p of state.payments){const amt=parseAmount(p.amount)||0; if(amt<=0) continue; if(p.fromId) outgoing[p.fromId]+=amt; if(p.toId) incoming[p.toId]+=amt;}
   const net={}; state.participants.forEach(p=> net[p.id]=(raw[p.id]||0)-(incoming[p.id]||0)+(outgoing[p.id]||0));
   const totals={ paidBy:Object.fromEntries(state.participants.map(p=>[p.id,0])), owedBy:Object.fromEntries(state.participants.map(p=>[p.id,0])) };
   for(const e of state.expenses){const per=computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue; if(e.payerId) totals.paidBy[e.payerId]+=amt; Object.entries(per).forEach(([id,val])=> totals.owedBy[id]+=val);}
-  return {raw,net,totals,incoming,outgoing}; }
+  return {raw,net,totals,incoming,outgoing};
+}
 function computeSettlements(bal){const debt=[], cred=[]; Object.entries(bal).forEach(([id,n])=>{if(Math.abs(n)<1e-8) return; if(n<0) debt.push({id,amount:-n}); else cred.push({id,amount:n});});
   debt.sort((a,b)=>b.amount-a.amount); cred.sort((a,b)=>b.amount-a.amount); const res=[]; let i=0,j=0;
   while(i<debt.length && j<cred.length){const d=debt[i], c=cred[j]; const amt=Math.min(d.amount,c.amount); res.push({from:d.id,to:c.id,amount:amt}); d.amount-=amt; c.amount-=amt; if(d.amount<=1e-8) i++; if(c.amount<=1e-8) j++;} return res; }
 
 // ===== Render =====
-function ensureDraft(fromExpense){ if(fromExpense){state.draft=JSON.parse(JSON.stringify(fromExpense)); return;} if(!state.draft){ state.draft={ id:uid(), desc:'', amount:'', date:new Date().toISOString().slice(0,10), payerId:null, involvedIds:state.participants.map(p=>p.id), split:{mode:'equal'}, category:'' }; }
+function ensureDraft(fromExpense){
+  if(fromExpense){state.draft=JSON.parse(JSON.stringify(fromExpense)); return;}
+  if(!state.draft){
+    state.draft={ id:uid(), desc:'', amount:'', date:new Date().toISOString().slice(0,10),
+      payerId:null, involvedIds:state.participants.map(p=>p.id), split:{mode:'equal'}, category:'' };
+  }
   state.draft.payerId = state.draft.payerId || null;
   state.draft.involvedIds = (state.draft.involvedIds||[]).filter(id=>state.participants.find(p=>p.id===id));
   if(state.draft.involvedIds.length===0) state.draft.involvedIds = state.participants.map(p=>p.id);
 }
 
-function render(){const app=document.getElementById('app'); const calc=computeBalancesAndTotals(); const settlements=computeSettlements(calc.net);
-  document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active', t.dataset.tab===state.activeTab); t.onclick=()=>{state.activeTab=t.dataset.tab; render();};});
-  bindTripTitle();
-  let html=''; if(state.activeTab==='viajeros') html+=renderViajeros(); if(state.activeTab==='nuevo') html+=renderNuevo(); if(state.activeTab==='gastos') html+=renderGastos(); if(state.activeTab==='pagos') html+=renderPagos(calc); if(state.activeTab==='saldos') html+=renderSaldos(calc,settlements); if(state.activeTab==='resumen') html+=renderResumen();
-  app.innerHTML = html; if(state.activeTab==='viajeros') bindViajeros(); if(state.activeTab==='nuevo') bindNuevo(); if(state.activeTab==='gastos') bindGastos(); if(state.activeTab==='pagos') bindPagos(); if(state.activeTab==='resumen') drawPie();
+function render(){
+  const app=document.getElementById('app');
+  const calc=computeBalancesAndTotals();
+  const settlements=computeSettlements(calc.net);
+
+  // tabs
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.classList.toggle('active', t.dataset.tab===state.activeTab);
+    t.onclick=()=>{state.activeTab=t.dataset.tab; render();};
+  });
+
+  // header buttons (viewer/filter)
+  bindTripTitle(); bindHeaderButtons();
+
+  // view
+  let html='';
+  if(state.activeTab==='viajeros') html+=renderViajeros();
+  if(state.activeTab==='nuevo')    html+=renderNuevo();
+  if(state.activeTab==='gastos')   html+=renderGastos();
+  if(state.activeTab==='pagos')    html+=renderPagos(calc);
+  if(state.activeTab==='saldos')   html+=renderSaldos(calc,settlements);
+  if(state.activeTab==='resumen')  html+=renderResumen();
+
+  app.innerHTML = html;
+
+  if(state.activeTab==='viajeros') bindViajeros();
+  if(state.activeTab==='nuevo')    bindNuevo();
+  if(state.activeTab==='gastos')   bindGastos();
+  if(state.activeTab==='pagos')    bindPagos();
+  if(state.activeTab==='resumen')  drawPie();
 }
 
 function renderViajeros(){
@@ -81,15 +154,15 @@ function renderViajeros(){
 
 function extraSplitInputsHTML(){
   const m=state.draft.split.mode; const ppl=state.draft.involvedIds;
-  if(m==='shares'){return `<div class="spacer"></div><div class="card"><div class="label">Asigná ponderaciones (1,2,3...). Se divide proporcionalmente.</div>
+  if(m==='shares'){return `<div class="spacer"></div><div class="card"><div class="label">Ponderaciones (1,2,3...)</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
       ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-share="${id}" value="${escapeHtml(state.draft.split.shares?.[id]??'')}"></label>`).join('')}
     </div></div>`; }
-  if(m==='percent'){return `<div class="spacer"></div><div class="card"><div class="label">Porcentajes (suma sugerida: 100)</div>
+  if(m==='percent'){return `<div class="spacer"></div><div class="card"><div class="label">Porcentajes (sugerido: 100)</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
       ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-percent="${id}" value="${escapeHtml(state.draft.split.percents?.[id]??'')}"></label>`).join('')}
     </div></div>`; }
-  if(m==='exact'){return `<div class="spacer"></div><div class="card"><div class="label">Montos exactos (se ajustan si no suman el total)</div>
+  if(m==='exact'){return `<div class="spacer"></div><div class="card"><div class="label">Montos exactos</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
       ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-exact="${id}" placeholder="$ 0,00" value="${escapeHtml(state.draft.split.exact?.[id]??'')}"></label>`).join('')}
     </div></div>`; }
@@ -146,27 +219,37 @@ function renderNuevo(){
 }
 
 function renderGastos(){
+  // FILTRO por “quién soy”
+  const viewer = state.currentViewerId;
+  const applyFilter = !!state.viewerFilter && !!viewer;
+
+  const list = applyFilter
+    ? state.expenses.filter(e => (e.involvedIds||[]).includes(viewer))
+    : state.expenses;
+
   return `
   <section class="panel">
-    <h2>Gastos cargados</h2>
-    ${state.expenses.length===0 ? '<div class="muted">Todavía no hay gastos.</div>' : `
+    <h2>Gastos cargados ${applyFilter ? `<span class="muted">· Filtrando por ${escapeHtml(nameById(viewer))}</span>`:''}</h2>
+    ${list.length===0 ? '<div class="muted">No hay gastos.</div>' : `
       <div style="overflow-x:auto">
         <table>
-          <thead><tr><th>Fecha</th><th>Categoría</th><th>Pagó</th><th>Incluye</th><th class="center">División</th><th class="right">Monto</th><th class="right">Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Categoría</th><th>Pagó</th><th>Incluye</th><th class="right">Monto</th><th class="right">Acciones</th></tr></thead>
           <tbody>
-          ${state.expenses.map(e=>`
-            <tr>
+          ${list.map(e=>{
+            const delta = applyFilter ? viewerDeltaForExpense(e, viewer) : 0;
+            const cls = applyFilter ? (delta>0?'viewer-pos': (delta<0?'viewer-neg':'')) : '';
+            return `
+            <tr class="${cls}">
               <td>${fmtDate(e.date)}</td><td>${escapeHtml(e.category||'Otros')}</td>
               <td>${escapeHtml(nameById(e.payerId))}</td><td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>
-              <td class="center">${({equal:'=',shares:'∝',percent:'%',exact:'≡'})[e.split?.mode||'equal']}</td>
               <td class="right"><b>$ ${formatAmount(e.amount)}</b></td>
               <td class="right">
                 <button class="btn" data-edit-exp="${e.id}">Editar</button>
                 <button class="btn" data-detail-exp="${e.id}">Detalle</button>
                 <button class="btn danger" style="margin-left:6px" data-del-exp="${e.id}">Eliminar</button>
               </td>
-            </tr>
-          `).join('')}
+            </tr>`;
+          }).join('')}
           </tbody>
         </table>
       </div>`}
@@ -207,13 +290,45 @@ function renderPagos(calc){
   </section>`;
 }
 
-function showExpenseDetail(e){const per=computePerHead(e); const overlay=document.createElement('div'); overlay.className='modal-overlay'; overlay.innerHTML=`
+function showExpenseDetail(e){
+  const per=computePerHead(e);
+  const mode=e.split?.mode || 'equal';
+
+  function labelFor(id){
+    if(mode==='equal'){
+      const n=(e.involvedIds||[]).length||1;
+      return `= 1/${n}`;
+    } else if(mode==='shares'){
+      const w = e.split?.shares?.[id] ?? '';
+      return `peso ${w||'–'}`;
+    } else if(mode==='percent'){
+      const p = e.split?.percents?.[id] ?? '';
+      return `${p||'0'}%`;
+    } else if(mode==='exact'){
+      const x = e.split?.exact?.[id] ?? '';
+      return `$ ${x||'0,00'}`;
+    }
+    return '';
+  }
+
+  const overlay=document.createElement('div'); overlay.className='modal-overlay'; overlay.innerHTML=`
   <div class="modal">
     <div class="row" style="justify-content:space-between"><h2>Detalle del gasto</h2><button class="btn" data-close>✕</button></div>
-    <div class="muted" style="margin-bottom:8px">${e.date||''} · ${escapeHtml(e.category||'Otros')}</div>
-    <div class="card" style="margin-bottom:8px"><div><b>${escapeHtml(e.desc||'(sin nota)')}</b></div><div class="muted">Pagó: ${escapeHtml(nameById(e.payerId))} · Total: <b>$ ${formatAmount(e.amount)}</b></div><div class="muted">Participan: ${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</div></div>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">${Object.keys(per).map(id=>`<div class="card"><div class="muted">${escapeHtml(nameById(id))}</div><div><b>$ ${formatAmount(per[id])}</b></div></div>`).join('')}</div>
-    <div class="spacer"></div><div class="row" style="justify-content:flex-end"><button class="btn" data-close>Cerrar</button></div>
+    <div class="muted" style="margin-bottom:8px">${fmtDate(e.date)} · ${escapeHtml(e.category||'Otros')}</div>
+    <div class="card" style="margin-bottom:8px">
+      <div><b>${escapeHtml(e.desc||'(sin nota)')}</b></div>
+      <div class="muted">Pagó: ${escapeHtml(nameById(e.payerId))} · Total: <b>$ ${formatAmount(e.amount)}</b></div>
+      <div class="muted">Modo de división: ${({equal:'Partes iguales',shares:'Por ponderaciones',percent:'Porcentaje',exact:'Montos exactos'})[mode]}</div>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+      ${Object.keys(per).map(id=>`
+        <div class="card">
+          <div class="muted">${escapeHtml(nameById(id))}</div>
+          <div><b>$ ${formatAmount(per[id])}</b> <span class="muted" style="margin-left:6px">(${escapeHtml(labelFor(id))})</span></div>
+        </div>`).join('')}
+    </div>
+    <div class="spacer"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" data-close>Cerrar</button></div>
   </div>`;
   function close(){document.body.removeChild(overlay);}
   overlay.addEventListener('click',(ev)=>{if(ev.target===overlay || ev.target.hasAttribute('data-close')) close();});
@@ -222,17 +337,29 @@ function showExpenseDetail(e){const per=computePerHead(e); const overlay=documen
 }
 
 function renderSaldos(calc, settlements){
+  // Reordenar: si hay viewer seleccionado, va primero
+  const viewer = state.currentViewerId;
+  const ordered = [...state.participants].sort((a,b)=>{
+    if(!viewer) return 0;
+    if(a.id===viewer && b.id!==viewer) return -1;
+    if(b.id===viewer && a.id!==viewer) return 1;
+    return 0;
+  });
+
   return `
   <section class="panel">
-    <h2>Saldos por persona</h2>
+    <h2>Saldos por persona ${viewer? `<span class="muted">· Prioridad: ${escapeHtml(nameById(viewer))}</span>`:''}</h2>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
-      ${state.participants.map(p=>{const raw=calc.raw[p.id]||0, net=calc.net[p.id]||0, paid=calc.totals.paidBy[p.id]||0, owed=calc.totals.owedBy[p.id]||0;
-        return `<div class="card"><div style="font-weight:600">${escapeHtml(p.name)}</div>
+      ${ordered.map(p=>{
+        const raw=calc.raw[p.id]||0, net=calc.net[p.id]||0, paid=calc.totals.paidBy[p.id]||0, owed=calc.totals.owedBy[p.id]||0;
+        return `<div class="card">
+          <div style="font-weight:600">${escapeHtml(p.name)}${viewer && p.id===viewer ? ' <span class="muted">(yo)</span>' : ''}</div>
           <div class="muted">Pagó: <b>$ ${formatAmount(paid)}</b></div>
           <div class="muted">Le corresponde: <b>$ ${formatAmount(owed)}</b></div>
           <div class="muted">Saldo (antes de pagos): <b>${raw>=0?'+':''}$ ${formatAmount(raw)}</b></div>
-          <div class="${net>=0?'ok':'bad'}" style="margin-top:6px;font-weight:800;color:${net>=0?'var(--ok)':'#b91c1c'}">Saldo actual: ${net>=0?'+':''}$ ${formatAmount(net)}</div>
-        </div>`;}).join('')}
+          <div style="margin-top:6px;font-weight:800;color:${net>=0?'var(--ok)':'#b91c1c'}">Saldo actual: ${net>=0?'+':''}$ ${formatAmount(net)}</div>
+        </div>`;
+      }).join('')}
     </div>
   </section>
   <section class="panel">
@@ -283,7 +410,10 @@ function setCurrentTrip(binId){
   if(!binId) return;
   CURRENT_BIN_ID = binId;
   startPolling();
-  (async()=>{ const data = await fetchBin(); if(data) applyRemote(data); if(!state.tripName){ state.tripName = (loadTrips().find(t=>t.id===binId)?.name) || 'Viaje 01'; } render(); })();
+  (async()=>{ const data = await fetchBin(); if(data) applyRemote(data);
+    if(!state.tripName){ state.tripName = (loadTrips().find(t=>t.id===binId)?.name) || 'Viaje 01'; }
+    render();
+  })();
 }
 function openTripModal(){
   ensureTripsSeed();
@@ -348,6 +478,73 @@ function bindTripTitle(){
   h.textContent = state.tripName || 'Viaje 01';
   h.addEventListener('click', openTripModal);
   h.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); openTripModal(); }});
+}
+
+// ===== Header: viewer & filter =====
+function bindHeaderButtons(){
+  const bViewer = document.getElementById('btnViewer');
+  const bFilter = document.getElementById('btnFilter');
+
+  if(bViewer){
+    // si ya hay viewer, mostrar su nombre en el botón
+    if(state.currentViewerId){
+      const nm = nameById(state.currentViewerId) || 'Yo';
+      bViewer.textContent = nm;
+    }
+    bViewer.onclick = openViewerModal;
+  }
+
+  if(bFilter){
+    bFilter.classList.toggle('is-active', !!state.viewerFilter);
+    bFilter.onclick = ()=>{
+      state.viewerFilter = !state.viewerFilter;
+      saveViewerFilterPref(state.viewerFilter);
+      bFilter.classList.toggle('is-active', !!state.viewerFilter);
+      render();
+    };
+  }
+}
+
+function openViewerModal(){
+  const overlay=document.createElement('div'); overlay.className='modal-overlay';
+  const opts = state.participants.map(p=>`
+    <label class="row" style="justify-content:space-between" >
+      <span>${escapeHtml(p.name)}</span>
+      <input type="radio" name="whoami" value="${p.id}" ${p.id===state.currentViewerId?'checked':''}>
+    </label>`).join('');
+
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:520px">
+      <div class="row" style="justify-content:space-between">
+        <h2>¿Quién sos?</h2>
+        <button class="btn" data-close>✕</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="grid" style="grid-template-columns:1fr;gap:8px">${opts||'<div class="muted">No hay viajeros aún.</div>'}</div>
+      <div class="spacer"></div>
+      <div class="row" style="justify-content:flex-end;gap:8px">
+        <button class="btn" data-save>Guardar</button>
+        <button class="btn" data-close>Cerrar</button>
+      </div>
+    </div>`;
+
+  function close(){ document.body.removeChild(overlay); }
+  overlay.addEventListener('click',(ev)=>{ if(ev.target===overlay || ev.target.hasAttribute('data-close')) close(); });
+
+  overlay.querySelector('[data-save]').addEventListener('click', ()=>{
+    const sel = overlay.querySelector('input[name="whoami"]:checked');
+    if(sel){
+      state.currentViewerId = sel.value;
+      saveViewerPref(state.currentViewerId);
+      const bViewer = document.getElementById('btnViewer');
+      if(bViewer) bViewer.textContent = nameById(state.currentViewerId) || 'Yo';
+      // mantener filtro como está; solo re-render
+      render();
+    }
+    close();
+  });
+
+  document.body.appendChild(overlay);
 }
 
 // ===== Bindings =====
@@ -463,15 +660,31 @@ function bindPagos(){
   });
   document.querySelectorAll('[data-del-pay]').forEach(btn=>btn.addEventListener('click',()=>{
     const id=btn.getAttribute('data-del-pay');
-    // (opcional) agregar confirm si querés también aquí.
     state.payments=state.payments.filter(x=>x.id!==id); saveMaybe(); render();
   }));
 }
 
 // ===== Sync =====
-function serializeState(){ return {tripName:state.tripName,currency:state.currency,participants:state.participants,expenses:state.expenses,payments:state.payments,__ts:Date.now()}; }
-function applyRemote(d){ if(!d) return; state.tripName = (typeof d.tripName==='string' && d.tripName.trim()) ? d.tripName : state.tripName; state.currency = d.currency ?? state.currency; state.participants = Array.isArray(d.participants)? d.participants : state.participants; state.expenses = Array.isArray(d.expenses)? d.expenses : state.expenses; state.payments = Array.isArray(d.payments)? d.payments : state.payments; lastRemoteTs=d.__ts||Date.now(); state.draft=null; state.editingId=null; }
-const saveRemoteDebounced = debounce(()=>{const payload=serializeState(); lastRemoteTs=payload.__ts; fetch(JSONBIN_PUT_URL(CURRENT_BIN_ID),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(()=>showStatus('Guardado')).catch(()=>{});},300);
+function serializeState(){ return {
+  tripName:state.tripName,currency:state.currency,
+  participants:state.participants,expenses:state.expenses,payments:state.payments,
+  __ts:Date.now()
+}; }
+function applyRemote(d){
+  if(!d) return;
+  state.tripName = (typeof d.tripName==='string' && d.tripName.trim()) ? d.tripName : state.tripName;
+  state.currency = d.currency ?? state.currency;
+  state.participants = Array.isArray(d.participants)? d.participants : state.participants;
+  state.expenses = Array.isArray(d.expenses)? d.expenses : state.expenses;
+  state.payments = Array.isArray(d.payments)? d.payments : state.payments;
+  lastRemoteTs=d.__ts||Date.now();
+  state.draft=null; state.editingId=null;
+}
+const saveRemoteDebounced = debounce(()=>{
+  const payload=serializeState(); lastRemoteTs=payload.__ts;
+  fetch(JSONBIN_PUT_URL(CURRENT_BIN_ID),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(()=>showStatus('Guardado')).catch(()=>{});
+},300);
 function saveMaybe(){saveRemoteDebounced();}
 async function fetchBin(){try{const r=await fetch(JSONBIN_GET_URL(CURRENT_BIN_ID)); if(!r.ok) throw new Error('GET failed'); const j=await r.json(); return j&&j.record? j.record : null;}catch(e){return null;}}
 function startPolling(){clearInterval(pollTimer); pollTimer=setInterval(async()=>{const remote=await fetchBin(); if(remote && remote.__ts && remote.__ts!==lastRemoteTs){applyRemote(remote); render(); showStatus('Sincronizado');}},3000);}
@@ -482,7 +695,12 @@ document.getElementById('btnShare').addEventListener('click',()=>{
   if(navigator.clipboard) navigator.clipboard.writeText(url).then(()=>showStatus('Link copiado ✨'));
   else prompt('Copiá este link:',url);
 });
-(async function init(){ ensureTripsSeed(); setCurrentTrip(CURRENT_BIN_ID || (loadTrips()[0]?.id)||''); const data=await fetchBin(); if(data) applyRemote(data); render(); })();
+(async function init(){
+  ensureTripsSeed();
+  setCurrentTrip(CURRENT_BIN_ID || (loadTrips()[0]?.id)||'');
+  const data=await fetchBin(); if(data) applyRemote(data);
+  render();
+})();
 
 // ===== Pie =====
 function drawPie(){
