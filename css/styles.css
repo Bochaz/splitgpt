@@ -118,3 +118,52 @@ tbody tr.viewer-neg td { border-color: #dc2626; } /* rojo */
 /* (opcional) aseguramos que tabs queden negras sin seleccionar */
 .tab,
 .tab:visited { color: var(--text) !important; -webkit-text-fill-color: var(--text); }
+
+/* --- 1) Tabs activas: fondo negro + texto blanco (incluye iOS) --- */
+.tabs .tab.active {
+  background: #000;
+  color: #fff !important;
+  border-color: #000;
+  -webkit-text-fill-color: #fff; /* iOS */
+}
+
+/* Asegurar tabs inactivas en negro (no azul en móvil) */
+.tabs .tab,
+.tabs .tab:visited {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text);
+}
+
+/* --- 2) Botón de filtro activo: icono blanco sobre fondo negro --- */
+.btn.is-active {
+  background: #111;
+  color: #fff !important;
+  border-color: #111;
+  -webkit-text-fill-color: #fff;
+}
+.btn.is-active svg,
+.btn.is-active svg * {
+  color: #fff;
+  stroke: currentColor;
+  fill: none;
+}
+
+/* --- 3) Pills de participantes: evitar azul al deseleccionar en móvil --- */
+.pill,
+.pill:visited {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text);
+}
+.pill.active {
+  background: #000;
+  color: #fff !important;
+  border-color: #000;
+  -webkit-text-fill-color: #fff;
+}
+.pill:focus {
+  outline: 2px solid #9ca3af;
+  outline-offset: 2px;
+}
+.pill {
+  -webkit-tap-highlight-color: transparent; /* iOS tap */
+}
