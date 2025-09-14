@@ -56,3 +56,65 @@ tbody tr.viewer-neg { box-shadow: inset 0 0 0 2px #dc2626; } /* rojo */
 
 /* estado activo del botón de filtro */
 .btn.is-active { background:#111; color:#fff; border-color:#111 }
+
+/* --- filas separadas con puntas redondeadas (tablas) --- */
+table { border-collapse: separate; border-spacing: 0 8px; }
+tbody tr td {
+  background: #fff;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+tbody tr td:first-child {
+  border-left: 2px solid var(--border);
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+tbody tr td:last-child {
+  border-right: 2px solid var(--border);
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+/* reborde por fila cuando el filtro está activo */
+tbody tr.viewer-pos td { border-color: #16a34a; } /* verde */
+tbody tr.viewer-neg td { border-color: #dc2626; } /* rojo */
+
+/* monto firmado (yo) */
+.amount.pos { color: #16a34a; font-weight: 700; }
+.amount.neg { color: #dc2626; font-weight: 700; }
+
+/* botón de filtro activado (ya estaba, por si no lo agregaste) */
+.btn.is-active { background:#111; color:#fff; border-color:#111 }
+
+/* --- Forzar color negro en botones e íconos (mobile Safari/Android) --- */
+.btn,
+.btn:visited {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text);
+}
+.btn svg,
+.btn svg * {
+  color: var(--text);
+  stroke: currentColor;
+  fill: none;
+}
+
+/* Mantener el estado activo del filtro en blanco/negro como lo definimos */
+.btn.is-active {
+  background: #111;
+  color: #fff !important;
+  border-color: #111;
+  -webkit-text-fill-color: #fff;
+}
+
+/* Botón de eliminar dentro de las pills de viajeros: rojo */
+.pill .btn.icon-danger,
+.pill .btn.icon-danger:visited {
+  color: #b91c1c !important;
+  border-color: #b91c1c;
+  -webkit-text-fill-color: #b91c1c;
+}
+
+/* (opcional) aseguramos que tabs queden negras sin seleccionar */
+.tab,
+.tab:visited { color: var(--text) !important; -webkit-text-fill-color: var(--text); }
