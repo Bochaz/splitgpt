@@ -142,7 +142,24 @@ function renderViajeros(){
     </div>
     <div class="spacer" style="height:12px"></div>
     <div class="row" style="flex-wrap:wrap;gap:8px">
-      ${state.participants.map(p=>`<span class="pill">${escapeHtml(p.name)} <button data-del="${p.id}" class="btn" style="padding:4px 6px;color:#b91c1c;border-color:#b91c1c">quitar</button></span>`).join('')}
+      ${state.participants.map(p=>`
+  <span class="pill">
+    ${escapeHtml(p.name)}
+    <button
+      data-del="${p.id}"
+      class="btn icon-danger"
+      aria-label="Eliminar viajero"
+      title="Eliminar viajero"
+      style="padding:4px 6px"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  </span>
+`).join('')}
+
       ${state.participants.length===0? '<span class="muted">Agregá viajeros para empezar</span>' : ''}
     </div>
   </section>`;
