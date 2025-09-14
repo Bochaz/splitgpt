@@ -457,6 +457,7 @@ function openTripModal(){
   const trips = loadTrips();
   const overlay=document.createElement('div'); overlay.className='modal-overlay';
   const curr = CURRENT_BIN_ID;
+  if (state.tripName) updateTripNameInLocal(curr, state.tripName);
   const items = trips.map(t=>`
     <label class="card" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
       <div class="row" style="gap:8px"><input type="radio" name="tripPick" value="${t.id}" ${t.id===curr?'checked':''}> <b>${escapeHtml(t.name||t.id)}</b></div>
@@ -501,6 +502,15 @@ function openTripModal(){
     const t = arr.find(x=>x.id===CURRENT_BIN_ID);
     if(t) t.name = name;
     saveTrips(arr);
+    function updateTripNameInLocal(id, name){
+      const arr = loadTrips();
+      const t = arr.find(x=>x.id===id);
+      if (t && name && name.trim()) {
+        t.name = name.trim();
+        saveTrips(arr);
+      }
+    }
+
     state.tripName = name; saveMaybe();
     const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
     close();
@@ -714,6 +724,9 @@ function applyRemote(d){
   state.payments = Array.isArray(d.payments)? d.payments : state.payments;
   lastRemoteTs=d.__ts||Date.now();
   state.draft=null; state.editingId=null;
+  
+  // 🔁 Nuevo: reflejar el nombre remoto en la lista local del selector
+  updateTripNameInLocal(CURRENT_BIN_ID, state.tripName);
 }
 const saveRemoteDebounced = debounce(()=>{
   const payload=serializeState(); lastRemoteTs=payload.__ts;
