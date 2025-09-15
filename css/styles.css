@@ -90,3 +90,23 @@ tbody tr.viewer-neg td { border-color: #dc2626; } /* rojo */
 /* monto firmado (yo) */
 .amount.pos { color: #16a34a; font-weight: 700; }
 .amount.neg { color: #dc2626; font-weight: 700; }
+
+/* --- Botón de eliminar suave (rojo claro + icono blanco) --- */
+.btn.soft-danger{
+  background:#fecaca;          /* red-200 */
+  border-color:#fca5a5;        /* red-300 */
+  color:#fff !important;       /* texto/ícono blancos */
+  -webkit-text-fill-color:#fff;
+}
+.btn.soft-danger:hover{ filter: brightness(0.98); }
+.btn.soft-danger svg,
+.btn.soft-danger svg *{
+  color:#fff;                  /* asegura icono blanco */
+  stroke: currentColor;
+  fill: none;
+}
+
+/* Alineaciones en la tabla de Resumen */
+.table-resumen th.right,
+.table-resumen td.right{ text-align:right; }
+
