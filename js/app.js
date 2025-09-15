@@ -41,6 +41,12 @@ function fmtDateMmm(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-
 function isNarrow(){ return window.innerWidth <= 600; }
 function saveLocal(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function loadLocal(k,def){ try{ const x=JSON.parse(localStorage.getItem(k)||'null'); return (x==null?def:x);}catch(_){return def;} }
+function saveActiveTab(tab){ try{ localStorage.setItem(LS_ACTIVE_TAB, tab); }catch(_){ } }
+function loadActiveTab(def='viajeros'){ try{ return localStorage.getItem(LS_ACTIVE_TAB) || def; }catch(_){ return def; } }
+
+function saveSelectedTrip(id){ try{ if(id) localStorage.setItem(LS_SELECTED_TRIP, id); }catch(_){ } }
+function loadSelectedTrip(){ try{ return localStorage.getItem(LS_SELECTED_TRIP) || ''; }catch(_){ return ''; } }
+
 function loadViewerPref(){ return loadLocal('tripsplit_viewer', null); }
 function saveViewerPref(id){ saveLocal('tripsplit_viewer', id); }
 function loadViewerFilterPref(){ return !!loadLocal('tripsplit_viewer_filter', false); }
@@ -48,6 +54,9 @@ function saveViewerFilterPref(v){ saveLocal('tripsplit_viewer_filter', !!v); }
 
 // Trips list storage
 const LS_TRIPS_KEY = 'tripsplit_trips';
+const LS_ACTIVE_TAB = 'tripsplit_active_tab';
+const LS_SELECTED_TRIP = 'tripsplit_selected_trip';
+
 function loadTrips(){ try{ const arr = JSON.parse(localStorage.getItem(LS_TRIPS_KEY)||'[]'); return Array.isArray(arr)? arr : []; }catch(e){ return []; } }
 function saveTrips(list){ localStorage.setItem(LS_TRIPS_KEY, JSON.stringify(list)); }
 function updateTripNameInLocal(id, name){
@@ -154,9 +163,11 @@ function render(){
   document.querySelectorAll('.tab').forEach(t=>{
     t.classList.toggle('active', t.dataset.tab===state.activeTab);
     t.onclick=()=>{
-      // Si estoy editando y navego, cancelo la edición
+      // si estoy editando y navego, cancelo edición (ya lo tenías)
       if(state.editingId){ state.draft=null; state.editingId=null; }
-      state.activeTab=t.dataset.tab; render();
+      state.activeTab=t.dataset.tab;
+      saveActiveTab(state.activeTab);     // <<< NUEVO
+      render();
     };
   });
 
@@ -505,12 +516,18 @@ function renderResumen(){
 function setCurrentTrip(binId){
   if(!binId) return;
   CURRENT_BIN_ID = binId;
+  saveSelectedTrip(CURRENT_BIN_ID);     // <<< NUEVO
   startPolling();
-  (async()=>{ const data = await fetchBin(); if(data) applyRemote(data);
-    if(!state.tripName){ state.tripName = (loadTrips().find(t=>t.id===binId)?.name) || 'Viaje 01'; }
+  (async()=>{
+    const data = await fetchBin();
+    if(data) applyRemote(data);
+    if(!state.tripName){
+      state.tripName = (loadTrips().find(t=>t.id===binId)?.name) || 'Viaje 01';
+    }
     render();
   })();
 }
+
 function openTripModal(){
   ensureTripsSeed();
   const curr = CURRENT_BIN_ID;
@@ -814,14 +831,26 @@ document.getElementById('btnShare').addEventListener('click',()=>{
   if(navigator.clipboard) navigator.clipboard.writeText(url).then(()=>showStatus('Link copiado ✨'));
   else prompt('Copiá este link:',url);
 });
+
 (async function init(){
   ensureTripsSeed();
-  setCurrentTrip(CURRENT_BIN_ID || (loadTrips()[0]?.id)||'');
+
+  // 1) Restaurar viaje elegido anteriormente
+  const storedTrip = loadSelectedTrip();
+  setCurrentTrip(storedTrip || CURRENT_BIN_ID || (loadTrips()[0]?.id) || '');
+
+  // 2) Traer remoto
   const data=await fetchBin(); if(data) applyRemote(data);
+
+  // 3) Restaurar pestaña usada por esta persona
+  const lastTab = loadActiveTab('viajeros');
+  state.activeTab = lastTab;
+
   render();
-  // Redibujar layout responsivo al redimensionar (para narrow/wide)
+
   window.addEventListener('resize', debounce(()=>{ if(state.activeTab==='gastos'){ render(); } }, 150));
 })();
+
 
 // ===== Pie =====
 function drawPie(){
