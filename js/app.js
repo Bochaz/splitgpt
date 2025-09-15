@@ -34,6 +34,7 @@ function formatAmount0(n){ if(Number.isNaN(n)||n==null) return '0'; return Math.
 function parseAmount(s){ if(typeof s==='number') return s; if(!s) return 0; const clean=String(s).replace(/[^0-9,.-]/g,'').replace(',','.'); const n=parseFloat(clean); return Number.isFinite(n)?n:0; }
 function nameById(id){ const p=state.participants.find(p=>p.id===id); return p? p.name : '(?)'; }
 function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+function normName(s){ return String(s || '').trim().toLowerCase().replace(/\s+/g,' '); }
 function fmtDate(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); return `${da.padStart(2,'0')}-${m.padStart(2,'0')}-${String(y).slice(2)}`; }catch(e){ return d||''; } }
 const MES_ABR = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 function fmtDateMmm(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); const mm = MES_ABR[Number(m)-1]||m; return `${String(da).padStart(2,'0')}-${mm}`; }catch(e){ return d||''; } }
@@ -646,12 +647,22 @@ function openViewerModal(){
 // ===== Bindings =====
 function bindViajeros(){
   document.getElementById('btnAddPerson').addEventListener('click',()=>{
-    const name=document.getElementById('inpNewName').value.trim();
-    if(!name) return;
-    state.participants.push({id:uid(),name});
+    const raw = document.getElementById('inpNewName').value;
+    const name = raw.trim();
+    if(!name){
+      alert('Ingresá un nombre.');
+      return;
+    }
+    const exists = state.participants.some(p => normName(p.name) === normName(name));
+    if(exists){
+      alert('Ya existe un viajero con ese nombre.');
+      return;
+    }
+    state.participants.push({id:uid(), name});
     document.getElementById('inpNewName').value='';
     saveMaybe(); render();
   });
+
   document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{
     const id=btn.getAttribute('data-del');
     if(!confirm('¿Eliminar viajero? Los gastos en los que participó quedarán sin identificación del viajero eliminado y se ajustarán los participantes.')) return;
