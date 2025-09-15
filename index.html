@@ -3,14 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TripSplit – Divisor de gastos</title>
+  <title>TripSplit</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <header>
     <div class="container row" style="justify-content:space-between">
       <div class="row"><h1 id="tripTitle" class="app-title" title="Cambiar nombre o viaje" tabindex="0">Viaje 01</h1></div>
-      
       <div class="row">
         <!-- Compartir -->
         <button id="btnShare" class="btn" aria-label="Compartir" title="Compartir">
@@ -19,7 +18,6 @@
                   stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
-      
         <!-- Elegir “quién soy” -->
         <button id="btnViewer" class="btn" aria-label="Elegir viajero" title="Elegir viajero">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -27,7 +25,6 @@
                   stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
-      
         <!-- Filtro por viajero -->
         <button id="btnFilter" class="btn" aria-label="Filtrar por viajero" title="Filtrar por viajero">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -36,7 +33,6 @@
           </svg>
         </button>
       </div>
-
     </div>
     <div class="container" style="padding-top:0">
       <nav class="tabs">
@@ -49,9 +45,11 @@
       </nav>
     </div>
   </header>
+
   <main class="container" id="app"></main>
   <div id="status" style="display:none"></div>
 
+  <!-- BIN principal (Viaje 01) -->
   <script>
     window.TRIPSPLIT_BIN_ID = "68c46f61ae596e708fecaebe";
   </script>
