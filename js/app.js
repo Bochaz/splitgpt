@@ -32,7 +32,7 @@ function uid(){return Math.random().toString(36).slice(2,9)}
 function formatAmount(n){ if(Number.isNaN(n)||n==null) return '0.00'; return Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parseAmount(s){ if(typeof s==='number') return s; if(!s) return 0; const clean=String(s).replace(/[^0-9,.-]/g,'').replace(',','.'); const n=parseFloat(clean); return Number.isFinite(n)?n:0; }
 function nameById(id){ const p=state.participants.find(p=>p.id===id); return p? p.name : '(?)'; }
-function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;"," >":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
 function fmtDate(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); return `${da.padStart(2,'0')}-${m.padStart(2,'0')}-${String(y).slice(2)}`; }catch(e){ return d||''; } }
 function saveLocal(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function loadLocal(k,def){ try{ const x=JSON.parse(localStorage.getItem(k)||'null'); return (x==null?def:x);}catch(_){return def;} }
@@ -40,6 +40,25 @@ function loadViewerPref(){ return loadLocal('tripsplit_viewer', null); }
 function saveViewerPref(id){ saveLocal('tripsplit_viewer', id); }
 function loadViewerFilterPref(){ return !!loadLocal('tripsplit_viewer_filter', false); }
 function saveViewerFilterPref(v){ saveLocal('tripsplit_viewer_filter', !!v); }
+
+// Trips list storage
+const LS_TRIPS_KEY = 'tripsplit_trips';
+function loadTrips(){ try{ const arr = JSON.parse(localStorage.getItem(LS_TRIPS_KEY)||'[]'); return Array.isArray(arr)? arr : []; }catch(e){ return []; } }
+function saveTrips(list){ localStorage.setItem(LS_TRIPS_KEY, JSON.stringify(list)); }
+function updateTripNameInLocal(id, name){
+  const arr = loadTrips();
+  const t = arr.find(x=>x.id===id);
+  if (t && name && name.trim()) {
+    t.name = name.trim();
+    saveTrips(arr);
+  }
+}
+function ensureTripsSeed(){
+  const existing = loadTrips();
+  const map = Object.fromEntries(existing.map(t=>[t.id, t.name]));
+  const seeded = KNOWN_BINS.map((t,i)=>({id:t.id, name: map[t.id] || t.name || `Viaje ${String(i+1).padStart(2,'0')}`}));
+  saveTrips(seeded);
+}
 
 // ===== Calc =====
 function computePerHead(e){
@@ -57,7 +76,8 @@ function computePerHead(e){
     involved.forEach(id=>{const p=parseAmount(e.split.percents?.[id])||0; per[id]= total>0? (amt*p)/total : 0;});
   } else if(e.split?.mode==='exact'){
     involved.forEach(id=>per[id]=parseAmount(e.split.exact?.[id])||0);
-    const sum=Object.values(per).reduce((a,b)=>a+b,0); if(sum>0 && Math.abs(sum-amt)>0.01){const f=amt/sum; for(const k in per) per[k]*=f;}
+    const sum=Object.values(per).reduce((a,b)=>a+b,0);
+    if(sum>0 && Math.abs(sum-amt)>0.01){const f=amt/sum; for(const k in per) per[k]*=f;}
   } else {
     const share=amt/involved.length; involved.forEach(id=>per[id]=share);
   }
@@ -81,15 +101,33 @@ function computeBalancesAndTotals(){
     Object.entries(per).forEach(([id,val])=> raw[id]-=val);
   }
   const incoming={}, outgoing={}; state.participants.forEach(p=>{incoming[p.id]=0; outgoing[p.id]=0;});
-  for(const p of state.payments){const amt=parseAmount(p.amount)||0; if(amt<=0) continue; if(p.fromId) outgoing[p.fromId]+=amt; if(p.toId) incoming[p.toId]+=amt;}
+  for(const p of state.payments){
+    const amt=parseAmount(p.amount)||0; if(amt<=0) continue;
+    if(p.fromId) outgoing[p.fromId]+=amt; if(p.toId) incoming[p.toId]+=amt;
+  }
   const net={}; state.participants.forEach(p=> net[p.id]=(raw[p.id]||0)-(incoming[p.id]||0)+(outgoing[p.id]||0));
   const totals={ paidBy:Object.fromEntries(state.participants.map(p=>[p.id,0])), owedBy:Object.fromEntries(state.participants.map(p=>[p.id,0])) };
-  for(const e of state.expenses){const per=computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue; if(e.payerId) totals.paidBy[e.payerId]+=amt; Object.entries(per).forEach(([id,val])=> totals.owedBy[id]+=val);}
+  for(const e of state.expenses){
+    const per=computePerHead(e); const amt=parseAmount(e.amount)||0; if(amt<=0) continue;
+    if(e.payerId) totals.paidBy[e.payerId]+=amt; Object.entries(per).forEach(([id,val])=> totals.owedBy[id]+=val);
+  }
   return {raw,net,totals,incoming,outgoing};
 }
-function computeSettlements(bal){const debt=[], cred=[]; Object.entries(bal).forEach(([id,n])=>{if(Math.abs(n)<1e-8) return; if(n<0) debt.push({id,amount:-n}); else cred.push({id,amount:n});});
-  debt.sort((a,b)=>b.amount-a.amount); cred.sort((a,b)=>b.amount-a.amount); const res=[]; let i=0,j=0;
-  while(i<debt.length && j<cred.length){const d=debt[i], c=cred[j]; const amt=Math.min(d.amount,c.amount); res.push({from:d.id,to:c.id,amount:amt}); d.amount-=amt; c.amount-=amt; if(d.amount<=1e-8) i++; if(c.amount<=1e-8) j++;} return res; }
+function computeSettlements(bal){
+  const debt=[], cred=[];
+  Object.entries(bal).forEach(([id,n])=>{
+    if(Math.abs(n)<1e-8) return;
+    if(n<0) debt.push({id,amount:-n}); else cred.push({id,amount:n});
+  });
+  debt.sort((a,b)=>b.amount-a.amount); cred.sort((a,b)=>b.amount-a.amount);
+  const res=[]; let i=0,j=0;
+  while(i<debt.length && j<cred.length){
+    const d=debt[i], c=cred[j]; const amt=Math.min(d.amount,c.amount);
+    res.push({from:d.id,to:c.id,amount:amt}); d.amount-=amt; c.amount-=amt;
+    if(d.amount<=1e-8) i++; if(c.amount<=1e-8) j++;
+  }
+  return res;
+}
 
 // ===== Render =====
 function ensureDraft(fromExpense){
@@ -143,23 +181,22 @@ function renderViajeros(){
     <div class="spacer" style="height:12px"></div>
     <div class="row" style="flex-wrap:wrap;gap:8px">
       ${state.participants.map(p=>`
-  <span class="pill">
-    ${escapeHtml(p.name)}
-    <button
-      data-del="${p.id}"
-      class="btn icon-danger"
-      aria-label="Eliminar viajero"
-      title="Eliminar viajero"
-      style="padding:4px 6px"
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
-  </span>
-`).join('')}
-
+        <span class="pill">
+          ${escapeHtml(p.name)}
+          <button
+            data-del="${p.id}"
+            class="btn icon-danger"
+            aria-label="Eliminar viajero"
+            title="Eliminar viajero"
+            style="padding:4px 6px"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </span>
+      `).join('')}
       ${state.participants.length===0? '<span class="muted">Agregá viajeros para empezar</span>' : ''}
     </div>
   </section>`;
@@ -368,7 +405,7 @@ function renderSaldos(calc, settlements){
   const viewer = state.currentViewerId;
   const applyFilter = !!state.viewerFilter && !!viewer;
 
-  // Participantes a mostrar (si filtro: solo yo)
+  // Participantes a mostrar (si filtro: solo yo; sino, yo primero)
   const list = applyFilter
     ? state.participants.filter(p => p.id===viewer)
     : [...state.participants].sort((a,b)=>{
@@ -433,16 +470,7 @@ function renderResumen(){
   </section>`;
 }
 
-// ===== Trips (local list & modal) =====
-const LS_TRIPS_KEY = 'tripsplit_trips';
-function loadTrips(){ try{ const arr = JSON.parse(localStorage.getItem(LS_TRIPS_KEY)||'[]'); return Array.isArray(arr)? arr : []; }catch(e){ return []; } }
-function saveTrips(list){ localStorage.setItem(LS_TRIPS_KEY, JSON.stringify(list)); }
-function ensureTripsSeed(){
-  const existing = loadTrips();
-  const map = Object.fromEntries(existing.map(t=>[t.id, t.name]));
-  const seeded = KNOWN_BINS.map((t,i)=>({id:t.id, name: map[t.id] || t.name || `Viaje ${String(i+1).padStart(2,'0')}`}));
-  saveTrips(seeded);
-}
+// ===== Trips (select & modal) =====
 function setCurrentTrip(binId){
   if(!binId) return;
   CURRENT_BIN_ID = binId;
@@ -454,10 +482,12 @@ function setCurrentTrip(binId){
 }
 function openTripModal(){
   ensureTripsSeed();
-  const trips = loadTrips();
-  const overlay=document.createElement('div'); overlay.className='modal-overlay';
   const curr = CURRENT_BIN_ID;
+  // Sincronizar nombre local con el remoto más reciente para el viaje actual
   if (state.tripName) updateTripNameInLocal(curr, state.tripName);
+  const trips = loadTrips();
+
+  const overlay=document.createElement('div'); overlay.className='modal-overlay';
   const items = trips.map(t=>`
     <label class="card" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
       <div class="row" style="gap:8px"><input type="radio" name="tripPick" value="${t.id}" ${t.id===curr?'checked':''}> <b>${escapeHtml(t.name||t.id)}</b></div>
@@ -502,15 +532,6 @@ function openTripModal(){
     const t = arr.find(x=>x.id===CURRENT_BIN_ID);
     if(t) t.name = name;
     saveTrips(arr);
-    function updateTripNameInLocal(id, name){
-      const arr = loadTrips();
-      const t = arr.find(x=>x.id===id);
-      if (t && name && name.trim()) {
-        t.name = name.trim();
-        saveTrips(arr);
-      }
-    }
-
     state.tripName = name; saveMaybe();
     const h = document.getElementById('tripTitle'); if(h) h.textContent = state.tripName;
     close();
@@ -724,8 +745,8 @@ function applyRemote(d){
   state.payments = Array.isArray(d.payments)? d.payments : state.payments;
   lastRemoteTs=d.__ts||Date.now();
   state.draft=null; state.editingId=null;
-  
-  // 🔁 Nuevo: reflejar el nombre remoto en la lista local del selector
+
+  // reflejar el nombre remoto en la lista local del selector
   updateTripNameInLocal(CURRENT_BIN_ID, state.tripName);
 }
 const saveRemoteDebounced = debounce(()=>{
