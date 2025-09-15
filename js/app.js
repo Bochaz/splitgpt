@@ -212,15 +212,15 @@ function renderViajeros(){
 
 function extraSplitInputsHTML(){
   const m=state.draft.split.mode; const ppl=state.draft.involvedIds;
-  if(m==='shares'){return `<div class="spacer"></div><div class="card"><div class="label">Ponderaciones (1,2,3...)</div>
+  if(m==='shares'){return `<div class="spacer" style="height:12px"></div><div class="card"><div class="label">Ponderaciones (1,2,3...)</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
       ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-share="${id}" value="${escapeHtml(state.draft.split.shares?.[id]??'')}"></label>`).join('')}
     </div></div>`; }
-  if(m==='percent'){return `<div class="spacer"></div><div class="card"><div class="label">Porcentajes (sugerido: 100)</div>
+  if(m==='percent'){return `<div class="spacer" style="height:12px"></div><div class="card"><div class="label">Porcentajes (sugerido: 100)</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
       ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-percent="${id}" value="${escapeHtml(state.draft.split.percents?.[id]??'')}"></label>`).join('')}
     </div></div>`; }
-  if(m==='exact'){return `<div class="spacer"></div><div class="card"><div class="label">Montos exactos</div>
+  if(m==='exact'){return `<div class="spacer" style="height:12px"></div><div class="card"><div class="label">Montos exactos</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
       ${ppl.map(id=>`<label class="block"><div class="label">${escapeHtml(nameById(id))}</div><input data-exact="${id}" placeholder="$ 0,00" value="${escapeHtml(state.draft.split.exact?.[id]??'')}"></label>`).join('')}
     </div></div>`; }
@@ -259,7 +259,9 @@ function renderNuevo(){
       </label></div>
     </div>
 
-    <div class="spacer"></div>
+    <!-- Espacio entre modo y el título de participantes -->
+    <div class="spacer" style="height:8px"></div>
+
     <div class="label">¿Quiénes participan de este gasto?</div>
     <div class="row" style="flex-wrap:wrap;gap:8px">
       ${state.participants.map(p=>{const on=state.draft.involvedIds.includes(p.id); return `<button class="pill ${on?'active':''}" data-tgl="${p.id}">${escapeHtml(p.name)}</button>`;}).join('')}
@@ -320,7 +322,7 @@ function renderGastos(){
               <td class="right">${amountCell}</td>
               <td class="right">
                 <button class="btn" data-edit-exp="${e.id}">Editar</button>
-                <!-- Botón Detalle removido: clic en fila abre detalle -->
+                <!-- Detalle removido: clic en la fila abre el detalle -->
                 <button class="btn soft-danger" style="margin-left:6px" data-del-exp="${e.id}" aria-label="Eliminar gasto" title="Eliminar gasto">
                   <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
@@ -399,12 +401,16 @@ function showExpenseDetail(e){
   const overlay=document.createElement('div'); overlay.className='modal-overlay'; overlay.innerHTML=`
   <div class="modal">
     <div class="row" style="justify-content:space-between"><h2>Detalle del gasto</h2><button class="btn" data-close>✕</button></div>
-    <div class="muted" style="margin-bottom:8px">${fmtDate(e.date)} · ${escapeHtml(e.category||'Otros')}</div>
+    <!-- Abajo del título: fecha + pagó -->
+    <div class="muted" style="margin-bottom:8px">${fmtDate(e.date)} · Pagó: <b>${escapeHtml(nameById(e.payerId))}</b></div>
+
     <div class="card" style="margin-bottom:8px">
+      <div class="muted" style="font-weight:600">${escapeHtml(e.category||'Otros')}</div>
       <div><b>${escapeHtml(e.desc||'(sin nota)')}</b></div>
-      <div class="muted">Pagó: ${escapeHtml(nameById(e.payerId))} · Total: <b>$ ${formatAmount(e.amount)}</b></div>
+      <div class="muted">Total: <b>$ ${formatAmount(e.amount)}</b></div>
       <div class="muted">Modo de división: ${({equal:'Partes iguales',shares:'Por ponderaciones',percent:'Porcentaje',exact:'Montos exactos'})[mode]}</div>
     </div>
+
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
       ${Object.keys(per).map(id=>`
         <div class="card">
