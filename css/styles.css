@@ -127,3 +127,15 @@ tbody tr.viewer-neg td { border-color: #dc2626; } /* rojo */
 
 tbody tr[data-row-exp]:hover td { background: #f9fafb; }
 
+.nowrap { white-space: nowrap; }
+
+.col-cat { white-space: nowrap; }
+
+@media (max-width: 600px){
+  .col-cat {
+    max-width: 12ch;      /* entra “Alojamiento” */
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  th.col-amount, td.col-amount { white-space: nowrap; }
+}
