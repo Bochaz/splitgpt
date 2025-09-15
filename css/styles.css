@@ -110,3 +110,17 @@ tbody tr.viewer-neg td { border-color: #dc2626; } /* rojo */
 .table-resumen th.right,
 .table-resumen td.right{ text-align:right; }
 
+/* Rojo más fuerte para botones de eliminar (ícono blanco) */
+.btn.soft-danger{
+  background:#ef4444;   /* red-500 */
+  border-color:#dc2626; /* red-600 */
+  color:#fff !important;
+  -webkit-text-fill-color:#fff;
+}
+.btn.soft-danger:hover{ filter:brightness(0.96); }
+.btn.soft-danger svg,
+.btn.soft-danger svg *{
+  color:#fff;
+  stroke:currentColor;
+  fill:none;
+}
