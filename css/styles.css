@@ -124,3 +124,6 @@ tbody tr.viewer-neg td { border-color: #dc2626; } /* rojo */
   stroke:currentColor;
   fill:none;
 }
+
+tbody tr[data-row-exp]:hover td { background: #f9fafb; }
+
