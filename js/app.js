@@ -30,10 +30,14 @@ const state = {
 // ===== Utils =====
 function uid(){return Math.random().toString(36).slice(2,9)}
 function formatAmount(n){ if(Number.isNaN(n)||n==null) return '0.00'; return Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function formatAmount0(n){ if(Number.isNaN(n)||n==null) return '0'; return Math.round(Number(n)).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function parseAmount(s){ if(typeof s==='number') return s; if(!s) return 0; const clean=String(s).replace(/[^0-9,.-]/g,'').replace(',','.'); const n=parseFloat(clean); return Number.isFinite(n)?n:0; }
 function nameById(id){ const p=state.participants.find(p=>p.id===id); return p? p.name : '(?)'; }
 function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
 function fmtDate(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); return `${da.padStart(2,'0')}-${m.padStart(2,'0')}-${String(y).slice(2)}`; }catch(e){ return d||''; } }
+const MES_ABR = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function fmtDateMmm(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); const mm = MES_ABR[Number(m)-1]||m; return `${String(da).padStart(2,'0')}-${mm}`; }catch(e){ return d||''; } }
+function isNarrow(){ return window.innerWidth <= 600; }
 function saveLocal(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function loadLocal(k,def){ try{ const x=JSON.parse(localStorage.getItem(k)||'null'); return (x==null?def:x);}catch(_){return def;} }
 function loadViewerPref(){ return loadLocal('tripsplit_viewer', null); }
@@ -148,7 +152,11 @@ function render(){
 
   document.querySelectorAll('.tab').forEach(t=>{
     t.classList.toggle('active', t.dataset.tab===state.activeTab);
-    t.onclick=()=>{state.activeTab=t.dataset.tab; render();};
+    t.onclick=()=>{
+      // Si estoy editando y navego, cancelo la edición
+      if(state.editingId){ state.draft=null; state.editingId=null; }
+      state.activeTab=t.dataset.tab; render();
+    };
   });
 
   bindTripTitle(); bindHeaderButtons();
@@ -225,7 +233,6 @@ function renderNuevo(){
   <section class="panel">
     <div class="row" style="justify-content:space-between">
       <h2>${isEditing? 'Editar gasto' : 'Nuevo gasto'}</h2>
-      ${isEditing? '<button id="btnCancelEdit" class="btn">Cancelar edición</button>' : ''}
     </div>
 
     <div class="grid grid-6">
@@ -262,7 +269,7 @@ function renderNuevo(){
 
     <div class="spacer" style="height:16px"></div>
     <div class="row" style="justify-content:space-between">
-      <button id="btnClearExpense" class="btn">Limpiar</button>
+      ${isEditing? '<button id="btnCancelEdit" class="btn soft-danger">Cancelar edición</button>' : '<button id="btnClearExpense" class="btn">Limpiar</button>'}
       ${isEditing? '<button id="btnSaveEdit" class="btn success">Guardar cambios</button>' : '<button id="btnAddExpense" class="btn success">Agregar gasto</button>'}
     </div>
   </section>`;
@@ -271,6 +278,7 @@ function renderNuevo(){
 function renderGastos(){
   const viewer = state.currentViewerId;
   const applyFilter = !!state.viewerFilter && !!viewer;
+  const narrow = isNarrow();
 
   const list = applyFilter
     ? state.expenses.filter(e => (e.involvedIds||[]).includes(viewer))
@@ -284,7 +292,8 @@ function renderGastos(){
         <table>
           <thead>
             <tr>
-              <th>Fecha</th><th>Categoría</th><th>Pagó</th><th>Incluye</th>
+              <th>Fecha</th><th>Categoría</th><th>Pagó</th>
+              ${narrow ? '' : '<th>Incluye</th>'}
               <th class="right">${applyFilter ? 'Monto (yo)' : 'Monto'}</th>
               <th class="right">Acciones</th>
             </tr>
@@ -292,25 +301,26 @@ function renderGastos(){
           <tbody>
           ${list.map(e=>{
             const total = parseAmount(e.amount)||0;
-            let amountCell = `<b>$ ${formatAmount(total)}</b>`;
+            const dateCell = narrow ? fmtDateMmm(e.date) : fmtDate(e.date);
+            let amountCell = `<b>$ ${narrow ? formatAmount0(total) : formatAmount(total)}</b>`;
             let rowCls = '';
 
             if(applyFilter){
               const delta = viewerDeltaForExpense(e, viewer); // + presté; - debo
               const cls = delta >= 0 ? 'pos' : 'neg';
-              amountCell = `<span class="amount ${cls}">${delta>=0?'+':''}$ ${formatAmount(Math.abs(delta))}</span>`;
+              amountCell = `<span class="amount ${cls}">${delta>=0?'+':''}$ ${narrow ? formatAmount0(Math.abs(delta)) : formatAmount(Math.abs(delta))}</span>`;
               rowCls = delta>0 ? 'viewer-pos' : (delta<0 ? 'viewer-neg' : '');
             }
 
             return `
-            <tr class="${rowCls}">
-              <td>${fmtDate(e.date)}</td><td>${escapeHtml(e.category||'Otros')}</td>
+            <tr class="${rowCls}" data-row-exp="${e.id}" style="cursor:pointer">
+              <td>${dateCell}</td><td>${escapeHtml(e.category||'Otros')}</td>
               <td>${escapeHtml(nameById(e.payerId))}</td>
-              <td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>
+              ${narrow ? '' : `<td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>`}
               <td class="right">${amountCell}</td>
               <td class="right">
                 <button class="btn" data-edit-exp="${e.id}">Editar</button>
-                <button class="btn" data-detail-exp="${e.id}">Detalle</button>
+                <!-- Botón Detalle removido: clic en fila abre detalle -->
                 <button class="btn soft-danger" style="margin-left:6px" data-del-exp="${e.id}" aria-label="Eliminar gasto" title="Eliminar gasto">
                   <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
@@ -705,11 +715,24 @@ function bindNuevo(){
       state.expenses=[normalized,...state.expenses];
       state.draft=null; saveMaybe(); state.activeTab='gastos'; render();
     });
+    document.getElementById('btnClearExpense').addEventListener('click',()=>{state.draft=null; render();});
   }
-  document.getElementById('btnClearExpense').addEventListener('click',()=>{state.draft=null; render();});
 }
 
 function bindGastos(){
+  // fila clickeable abre detalle (sin interferir con botones)
+  document.querySelectorAll('tr[data-row-exp]').forEach(tr=>{
+    tr.addEventListener('click',(ev)=>{
+      const id=tr.getAttribute('data-row-exp');
+      const exp=state.expenses.find(x=>x.id===id); if(!exp) return;
+      showExpenseDetail(exp);
+    });
+  });
+  // Evitar que los botones dentro de la fila disparen el click de fila
+  document.querySelectorAll('[data-edit-exp],[data-del-exp]').forEach(btn=>{
+    btn.addEventListener('click', (ev)=> ev.stopPropagation());
+  });
+
   document.querySelectorAll('[data-del-exp]').forEach(btn=>btn.addEventListener('click',()=>{
     const id=btn.getAttribute('data-del-exp');
     if(!confirm('¿Eliminar este gasto? Esta acción no se puede deshacer.')) return;
@@ -719,10 +742,6 @@ function bindGastos(){
   document.querySelectorAll('[data-edit-exp]').forEach(btn=>btn.addEventListener('click',()=>{
     const id=btn.getAttribute('data-edit-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return;
     ensureDraft(exp); state.editingId=id; state.activeTab='nuevo'; render();
-  }));
-  document.querySelectorAll('[data-detail-exp]').forEach(btn=>btn.addEventListener('click',()=>{
-    const id=btn.getAttribute('data-detail-exp'); const exp=state.expenses.find(x=>x.id===id); if(!exp) return;
-    showExpenseDetail(exp);
   }));
 }
 
@@ -783,6 +802,8 @@ document.getElementById('btnShare').addEventListener('click',()=>{
   setCurrentTrip(CURRENT_BIN_ID || (loadTrips()[0]?.id)||'');
   const data=await fetchBin(); if(data) applyRemote(data);
   render();
+  // Redibujar layout responsivo al redimensionar (para narrow/wide)
+  window.addEventListener('resize', debounce(()=>{ if(state.activeTab==='gastos'){ render(); } }, 150));
 })();
 
 // ===== Pie =====
