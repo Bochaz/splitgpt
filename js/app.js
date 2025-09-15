@@ -37,7 +37,15 @@ function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","
 function normName(s){ return String(s || '').trim().toLowerCase().replace(/\s+/g,' '); }
 function fmtDate(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); return `${da.padStart(2,'0')}-${m.padStart(2,'0')}-${String(y).slice(2)}`; }catch(e){ return d||''; } }
 const MES_ABR = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-function fmtDateMmm(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); const mm = MES_ABR[Number(m)-1]||m; return `${String(da).padStart(2,'0')}-${mm}`; }catch(e){ return d||''; } }
+// antes: return `${String(da).padStart(2,'0')}-${mm}`;
+function fmtDateMmm(d){
+  try{
+    if(!d) return '';
+    const [y,m,da]=String(d).split('-');
+    const mm = MES_ABR[Number(m)-1]||m;
+    return `${String(da).padStart(2,'0')} ${mm}`; // dd mmm (con espacio)
+  }catch(e){ return d||''; }
+}
 function isNarrow(){ return window.innerWidth <= 600; }
 function saveLocal(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function loadLocal(k,def){ try{ const x=JSON.parse(localStorage.getItem(k)||'null'); return (x==null?def:x);}catch(_){return def;} }
@@ -306,32 +314,37 @@ function renderGastos(){
         <table>
           <thead>
             <tr>
-              <th>Fecha</th><th>Categoría</th><th>Pagó</th>
+              <th>Fecha</th>
+              <th class="col-cat">Categoría</th>
+              <th>Pagó</th>
               ${narrow ? '' : '<th>Incluye</th>'}
-              <th class="right">${applyFilter ? 'Monto (yo)' : 'Monto'}</th>
+              <th class="right col-amount">${applyFilter ? 'Monto (yo)' : 'Monto'}</th>
               <th class="right">Acciones</th>
             </tr>
           </thead>
+
+
           <tbody>
           ${list.map(e=>{
             const total = parseAmount(e.amount)||0;
             const dateCell = narrow ? fmtDateMmm(e.date) : fmtDate(e.date);
-            let amountCell = `<b>$ ${narrow ? formatAmount0(total) : formatAmount(total)}</b>`;
+            let amountCell = `<span class="nowrap"><b>$&nbsp;${narrow ? formatAmount0(total) : formatAmount(total)}</b></span>`;
             let rowCls = '';
 
             if(applyFilter){
-              const delta = viewerDeltaForExpense(e, viewer); // + presté; - debo
+              const delta = viewerDeltaForExpense(e, viewer);
               const cls = delta >= 0 ? 'pos' : 'neg';
-              amountCell = `<span class="amount ${cls}">${delta>=0?'+':''}$ ${narrow ? formatAmount0(Math.abs(delta)) : formatAmount(Math.abs(delta))}</span>`;
-              rowCls = delta>0 ? 'viewer-pos' : (delta<0 ? 'viewer-neg' : '');
+              const num = narrow ? formatAmount0(Math.abs(delta)) : formatAmount(Math.abs(delta));
+              amountCell = `<span class="amount ${cls} nowrap">${delta>=0?'+':''}$&nbsp;${num}</span>`;
             }
 
             return `
             <tr class="${rowCls}" data-row-exp="${e.id}" style="cursor:pointer">
-              <td>${dateCell}</td><td>${escapeHtml(e.category||'Otros')}</td>
+              <td>${dateCell}</td>
+              <td class="col-cat">${escapeHtml(e.category||'Otros')}</td>   <!-- CATEGORÍA -->
               <td>${escapeHtml(nameById(e.payerId))}</td>
               ${narrow ? '' : `<td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>`}
-              <td class="right">${amountCell}</td>
+              <td class="right col-amount">${amountCell}</td>                <!-- MONTO -->
               <td class="right">
                 <button class="btn" data-edit-exp="${e.id}">Editar</button>
                 <!-- Detalle removido: clic en la fila abre el detalle -->
