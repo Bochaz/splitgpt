@@ -32,7 +32,7 @@ function uid(){return Math.random().toString(36).slice(2,9)}
 function formatAmount(n){ if(Number.isNaN(n)||n==null) return '0.00'; return Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parseAmount(s){ if(typeof s==='number') return s; if(!s) return 0; const clean=String(s).replace(/[^0-9,.-]/g,'').replace(',','.'); const n=parseFloat(clean); return Number.isFinite(n)?n:0; }
 function nameById(id){ const p=state.participants.find(p=>p.id===id); return p? p.name : '(?)'; }
-function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;"," >":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
 function fmtDate(d){ try{ if(!d) return ''; const [y,m,da]=String(d).split('-'); return `${da.padStart(2,'0')}-${m.padStart(2,'0')}-${String(y).slice(2)}`; }catch(e){ return d||''; } }
 function saveLocal(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function loadLocal(k,def){ try{ const x=JSON.parse(localStorage.getItem(k)||'null'); return (x==null?def:x);}catch(_){return def;} }
@@ -185,7 +185,7 @@ function renderViajeros(){
           ${escapeHtml(p.name)}
           <button
             data-del="${p.id}"
-            class="btn icon-danger"
+            class="btn soft-danger"
             aria-label="Eliminar viajero"
             title="Eliminar viajero"
             style="padding:4px 6px"
@@ -311,7 +311,12 @@ function renderGastos(){
               <td class="right">
                 <button class="btn" data-edit-exp="${e.id}">Editar</button>
                 <button class="btn" data-detail-exp="${e.id}">Detalle</button>
-                <button class="btn danger" style="margin-left:6px" data-del-exp="${e.id}">Eliminar</button>
+                <button class="btn soft-danger" style="margin-left:6px" data-del-exp="${e.id}" aria-label="Eliminar gasto" title="Eliminar gasto">
+                  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
+                          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
               </td>
             </tr>`;
           }).join('')}
@@ -346,7 +351,12 @@ function renderPagos(calc){
               <tr>
                 <td>${p.date||''}</td><td>${escapeHtml(nameById(p.fromId))}</td><td>${escapeHtml(nameById(p.toId))}</td><td>${escapeHtml(p.note||'')}</td>
                 <td class="right"><b>$ ${formatAmount(p.amount)}</b></td>
-                <td class="right"><button class="btn danger" data-del-pay="${p.id}">Eliminar</button></td>
+                <td class="right"><button class="btn soft-danger" data-del-pay="${p.id}" aria-label="Eliminar pago" title="Eliminar pago">
+                  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
+                          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button></td>
               </tr>
             `).join('')}
           </tbody>
@@ -458,12 +468,16 @@ function renderResumen(){
       <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
         <canvas id="pie" width="320" height="320"></canvas>
         <div style="flex:1;min-width:260px;overflow-x:auto">
-          <table>
-            <thead><tr><th>Categoría</th><th class="center">Total</th><th class="center">%</th></tr></thead>
+          <table class="table-resumen">
+            <thead>
+              <tr><th>Categoría</th><th class="right">Total</th><th class="right">%</th></tr>
+            </thead>
             <tbody>
               ${keys.map(c=>`<tr><td>${escapeHtml(c)}</td><td class="right"><b>$ ${formatAmount(totals[c])}</b></td><td class="right">${grand? (totals[c]*100/grand).toFixed(1):'0.0'}%</td></tr>`).join('')}
             </tbody>
-            <tfoot><tr><th>Total</th><th style="text-align:left">$ ${formatAmount(grand)}</th><th></th></tr></tfoot>
+            <tfoot>
+              <tr><th>Total</th><th class="right">$ ${formatAmount(grand)}</th><th></th></tr>
+            </tfoot>
           </table>
         </div>
       </div>`}
