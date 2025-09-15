@@ -319,8 +319,8 @@ function renderGastos(){
           <thead>
             <tr>
               <th>Día</th>
-              <th class="col-cat">Categoría</th>
               <th>Pagó</th>
+              <th class="col-cat">Categoría</th>
               ${narrow ? '' : '<th>Incluye</th>'}
               <th class="right col-amount">${applyFilter ? 'Monto (yo)' : 'Monto'}</th>
               <th class="right">Acción</th>
@@ -345,13 +345,12 @@ function renderGastos(){
             return `
             <tr class="${rowCls}" data-row-exp="${e.id}" style="cursor:pointer">
               <td>${dateCell}</td>
-              <td class="col-cat">${escapeHtml(e.category||'Otros')}</td>   <!-- CATEGORÍA -->
               <td>${escapeHtml(nameById(e.payerId))}</td>
+              <td class="col-cat">${escapeHtml(e.category||'Otros')}</td>
               ${narrow ? '' : `<td>${e.involvedIds.map(nameById).map(escapeHtml).join(', ')}</td>`}
-              <td class="right col-amount">${amountCell}</td>                <!-- MONTO -->
+              <td class="right col-amount">${amountCell}</td>
               <td class="right">
                 <button class="btn" data-edit-exp="${e.id}">Editar</button>
-                <!-- Detalle removido: clic en la fila abre el detalle -->
                 <button class="btn soft-danger" style="margin-left:6px" data-del-exp="${e.id}" aria-label="Eliminar gasto" title="Eliminar gasto">
                   <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M3 6h18M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m-9 0l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v7M14 11v7"
@@ -360,6 +359,7 @@ function renderGastos(){
                 </button>
               </td>
             </tr>`;
+
           }).join('')}
           </tbody>
         </table>
