@@ -210,7 +210,11 @@ function renderViajeros(){
     <div class="row" style="flex-wrap:wrap;gap:8px">
       ${state.participants.map(p=>`
         <span class="pill">
-          ${escapeHtml(p.name)}
+          <span
+            data-edit-name="${p.id}"
+            title="Editar nombre"
+            style="cursor:pointer; text-decoration: underline dotted; text-underline-offset: 2px;"
+          >${escapeHtml(p.name)}</span>
           <button
             data-del="${p.id}"
             class="btn soft-danger"
@@ -314,12 +318,12 @@ function renderGastos(){
         <table>
           <thead>
             <tr>
-              <th>Fecha</th>
+              <th>Día</th>
               <th class="col-cat">Categoría</th>
               <th>Pagó</th>
               ${narrow ? '' : '<th>Incluye</th>'}
               <th class="right col-amount">${applyFilter ? 'Monto (yo)' : 'Monto'}</th>
-              <th class="right">Acciones</th>
+              <th class="right">Acción</th>
             </tr>
           </thead>
 
@@ -676,6 +680,7 @@ function openViewerModal(){
 
 // ===== Bindings =====
 function bindViajeros(){
+  // Agregar
   document.getElementById('btnAddPerson').addEventListener('click',()=>{
     const raw = document.getElementById('inpNewName').value;
     const name = raw.trim();
@@ -693,6 +698,7 @@ function bindViajeros(){
     saveMaybe(); render();
   });
 
+  // Eliminar (ya lo tenías)
   document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{
     const id=btn.getAttribute('data-del');
     if(!confirm('¿Eliminar viajero? Los gastos en los que participó quedarán sin identificación del viajero eliminado y se ajustarán los participantes.')) return;
@@ -706,7 +712,35 @@ function bindViajeros(){
     state.payments=state.payments.filter(p=>p.fromId!==id && p.toId!==id);
     saveMaybe(); render();
   }));
+
+  // >>> NUEVO: Editar nombre
+  document.querySelectorAll('[data-edit-name]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = el.getAttribute('data-edit-name');
+      const p = state.participants.find(x=>x.id===id);
+      if(!p) return;
+
+      const proposed = prompt('Editar nombre del viajero:', p.name);
+      if(proposed == null) return; // canceló prompt
+      const newName = String(proposed).trim();
+      if(!newName || normName(newName) === normName(p.name)) return;
+
+      // Validar duplicados (ignorando mayúsculas/espacios)
+      const dup = state.participants.some(x => x.id!==p.id && normName(x.name)===normName(newName));
+      if(dup){
+        alert('Ya existe otro viajero con ese nombre.');
+        return;
+      }
+
+      if(!confirm(`¿Confirmás cambiar "${p.name}" por "${newName}"?`)) return;
+
+      p.name = newName; // IDs no cambian, así que todo el resto se actualiza por nameById()
+      saveMaybe();
+      render();
+    });
+  });
 }
+
 
 function sanitizeSplitForParticipants(split,involvedIds){
   const set=new Set(involvedIds);
